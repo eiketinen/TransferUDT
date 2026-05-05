@@ -1,0 +1,90 @@
+name: Security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 7 * * 1"
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+  pull-requests: read
+
+jobs:
+  codeql:
+    name: CodeQL C/C++
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          queries: security-extended,security-and-quality
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore vcpkg packages for Server
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows-static --x-manifest-root=ServerUDTC++_v3
+
+      - name: Restore vcpkg packages for Agent
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows-static --x-manifest-root=AgentUDTC++_v7.2
+
+      - name: Build applications
+        shell: pwsh
+        run: |
+          msbuild ServerUDTC++_v3\ServerUDTC++.vcxproj /p:Configuration=Debug /p:Platform=x64 /m
+          msbuild AgentUDTC++_v7.2\AgentUDTC++.vcxproj /p:Configuration=Debug /p:Platform=x64 /m
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+
+  secret-pattern-scan:
+    name: Secret Pattern Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan for committed secret patterns
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE 'BEGIN (RSA|OPENSSH|PRIVATE)|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9_]{36,}|github_pat_|xox[baprs]-|security\.(client_psk\.[^[:space:]=]+|psk)\s*=\s*[^[:space:]#]+' \
+            --exclude-dir=.git \
+            --exclude='*.vcxproj' \
+            --exclude='*.vcxproj.filters' \
+            . | grep -v 'replace-with-a-strong-shared-secret-of-32-plus-chars' | grep -v 'secure-test-key' | grep -v -- '-test-key'; then
+            echo "Potential secret material found. Remove it or explicitly tune the scanner."
+            exit 1
+          fi

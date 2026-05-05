@@ -1,0 +1,48 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore vcpkg packages for Server
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows-static --x-manifest-root=ServerUDTC++_v3
+
+      - name: Restore vcpkg packages for Agent
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows-static --x-manifest-root=AgentUDTC++_v7.2
+
+      - name: Build Server tests
+        shell: pwsh
+        run: |
+          msbuild ServerUDTC++_v3\ServerUDTC++Tests.vcxproj /p:Configuration=Debug /p:Platform=x64 /m
+
+      - name: Run Server tests
+        shell: pwsh
+        run: |
+          .\ServerUDTC++_v3\tests\bin\Debug\ServerUDTC++Tests.exe
+
+      - name: Build Agent tests
+        shell: pwsh
+        run: |
+          msbuild AgentUDTC++_v7.2\AgentUDTC++Tests.vcxproj /p:Configuration=Debug /p:Platform=x64 /m
+
+      - name: Run Agent tests
+        shell: pwsh
+        run: |
+          & "$env:LOCALAPPDATA\AgentUDTCppTests\bin\Debug\AgentUDTC++Tests.exe"

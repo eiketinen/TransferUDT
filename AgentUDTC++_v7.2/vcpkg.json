@@ -1,0 +1,11 @@
+{
+  "name": "agentudtc-project",
+  "version-string": "1.0.0",
+  "dependencies": [
+    "fmt",
+    "openssl",
+    "sqlite3",
+    "udt",
+    "spdlog"
+  ]
+}
