@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TransferUDT 1.0.0 - Referencia de Configuracao</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --ink: #142033;
+      --muted: #5c6878;
+      --line: #d9e0ea;
+      --head: #eef3f7;
+      --brand: #0f766e;
+      --brand-dark: #0b5d57;
+      --warn: #8a5a00;
+      --danger: #a23232;
+      --code: #0d1726;
+      --code-ink: #e6edf7;
+      --shadow: 0 16px 40px rgba(29, 42, 61, 0.10);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, sans-serif;
+      line-height: 1.55;
+    }
+
+    a { color: var(--brand-dark); }
+    code { font-family: Consolas, "Courier New", monospace; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 310px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px;
+      color: #ecf3fb;
+      background: #0d1726;
+    }
+
+    aside h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    aside .version {
+      margin-bottom: 18px;
+      color: #aab7c7;
+      font-size: 13px;
+    }
+
+    .search {
+      width: 100%;
+      margin: 0 0 18px;
+      padding: 10px 12px;
+      border: 1px solid #334158;
+      border-radius: 6px;
+      background: #101d31;
+      color: #fff;
+      font-size: 14px;
+    }
+
+    nav a {
+      display: block;
+      margin: 2px 0;
+      padding: 8px 10px;
+      border-radius: 6px;
+      color: #dbe7f4;
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    nav a:hover, nav a.active {
+      color: #fff;
+      background: #17263d;
+    }
+
+    main {
+      max-width: 1320px;
+      padding: 36px 48px 80px;
+    }
+
+    .hero, section, .callout {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .hero {
+      padding: 28px;
+      margin-bottom: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero h2 {
+      margin: 0 0 8px;
+      font-size: 34px;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      max-width: 900px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .meta div {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+
+    .meta strong {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .meta span {
+      display: block;
+      margin-top: 4px;
+      font-weight: 700;
+    }
+
+    section {
+      padding: 26px;
+      margin: 18px 0;
+    }
+
+    section h2 {
+      margin: 0 0 14px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    section h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+    }
+
+    p { margin: 8px 0 12px; }
+    ul, ol { padding-left: 22px; }
+    li { margin: 5px 0; }
+
+    .callout {
+      margin: 14px 0;
+      padding: 14px 16px;
+      border-left: 5px solid var(--brand);
+      background: #fbfcfe;
+    }
+
+    .callout.warn { border-left-color: var(--warn); background: #fff9ec; }
+    .callout.danger { border-left-color: var(--danger); background: #fff3f3; }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      margin: 12px 0 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      min-width: 980px;
+      border-collapse: collapse;
+      background: #fff;
+    }
+
+    th, td {
+      padding: 10px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    th {
+      background: var(--head);
+      color: #1d2b3f;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    td:first-child {
+      width: 250px;
+      font-weight: 700;
+      color: #10233f;
+    }
+
+    td:nth-child(2), td:nth-child(3) {
+      white-space: nowrap;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #e3f4f2;
+      color: var(--brand-dark);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tag.warn {
+      background: #fff1d2;
+      color: #7c5200;
+    }
+
+    .code-block {
+      position: relative;
+      margin: 12px 0;
+    }
+
+    pre {
+      overflow: auto;
+      margin: 0;
+      padding: 16px;
+      border-radius: 8px;
+      background: var(--code);
+      color: var(--code-ink);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .copy {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      padding: 6px 10px;
+      border: 1px solid #334158;
+      border-radius: 6px;
+      background: #18263a;
+      color: #fff;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; }
+      aside {
+        position: static;
+        height: auto;
+      }
+      main { padding: 24px 18px 60px; }
+      .meta { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <h1>TransferUDT</h1>
+      <div class="version">Referencia de Configuracao 1.0.0</div>
+      <input class="search" id="search" type="search" placeholder="Buscar parametro">
+      <nav id="nav">
+        <a href="#visao-geral">Visao geral</a>
+        <a href="#formato">Formato dos arquivos</a>
+        <a href="#agent">Cliente Agent</a>
+        <a href="#agent-avancado">Agent avancado</a>
+        <a href="#server">Server</a>
+        <a href="#server-avancado">Server avancado</a>
+        <a href="#seguranca">Seguranca</a>
+        <a href="#exemplos">Exemplos</a>
+        <a href="#operacao">Operacao</a>
+      </nav>
+    </aside>
+
+    <main>
+      <div class="hero">
+        <h2>Referencia parametro por parametro</h2>
+        <p>Este documento explica os parametros de configuracao do cliente
+        Agent e do Server do TransferUDT. A referencia foi alinhada aos arquivos
+        <code>AgentUDTC++_v7.2/config.example.properties</code>,
+        <code>ServerUDTC++_v3/config.example.properties</code> e aos loaders de
+        configuracao usados em tempo de execucao.</p>
+        <div class="meta">
+          <div><strong>Cliente</strong><span>RadarAgentUDTService</span></div>
+          <div><strong>Servidor</strong><span>ServerUDTService</span></div>
+          <div><strong>Formato</strong><span>properties key=value</span></div>
+          <div><strong>Seguranca</strong><span>PSK ou signed_handshake</span></div>
+        </div>
+      </div>
+
+      <section id="visao-geral" data-search>
+        <h2>Visao geral</h2>
+        <p>O TransferUDT usa dois arquivos principais de configuracao:</p>
+        <ul>
+          <li><strong>Agent:</strong> define para onde enviar arquivos, quais pastas observar, politicas de chunk, retry, logs, banco local, seguranca e Dashboard.</li>
+          <li><strong>Server:</strong> define porta de escuta, limites, diretorios de armazenamento/reconstrucao, filas de trabalho, logs, banco, politicas de cliente e seguranca.</li>
+        </ul>
+        <div class="callout">
+          <strong>Regra pratica:</strong> em producao, copie os arquivos
+          <code>config.example.properties</code> para <code>config.properties</code>,
+          ajuste caminhos locais, IDs de cliente e segredos, e nunca publique
+          arquivos com PSK, chaves privadas, certificados ou caminhos internos reais.
+        </div>
+      </section>
+
+      <section id="formato" data-search>
+        <h2>Formato dos arquivos</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Item</th><th>Como funciona</th><th>Observacao operacional</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Formato</td><td><code>chave = valor</code></td><td>Espacos antes/depois da chave e do valor sao removidos.</td></tr>
+              <tr><td>Comentarios</td><td>Linhas iniciadas por <code>#</code></td><td>Comentarios nao sao carregados.</td></tr>
+              <tr><td>Booleanos</td><td><code>true/false</code>, <code>1/0</code>, <code>yes/no</code>, <code>on/off</code></td><td>Valores invalidos caem no default ou geram erro quando a validacao final exigir.</td></tr>
+              <tr><td>Listas por ponto e virgula</td><td><code>a;b;c</code></td><td>Usado em <code>server.targets</code> e <code>data.dirs</code>.</td></tr>
+              <tr><td>Listas por virgula</td><td><code>a,b,c</code></td><td>Usado em allowlists, arquivos excluidos e padroes de atraso de ACK.</td></tr>
+              <tr><td>Caminho do Agent</td><td><code>AGENT_CONFIG_PATH</code></td><td>Servico instalado usa esta variavel para apontar para o arquivo correto.</td></tr>
+              <tr><td>Caminho do Server</td><td><code>SERVER_CONFIG_PATH</code></td><td>Servico instalado usa esta variavel para apontar para o arquivo correto.</td></tr>
+              <tr><td>Fallback local</td><td><code>config.properties</code></td><td>Usado quando a variavel de ambiente especifica nao existe.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="agent" data-search>
+        <h2>Cliente Agent</h2>
+        <p>Arquivo base: <code>AgentUDTC++_v7.2/config.example.properties</code>.</p>
+
+        <h3>Rede e destino</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Exemplo</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>server.targets</code></td><td><code>127.0.0.1:50051</code></td><td>host:porta</td><td>Lista de endpoints do Server para envio de chunks. Aceita varios destinos separados por <code>;</code>.</td><td>Cada entrada precisa ter host e porta entre 1 e 65535. Se nada valido for configurado, usa <code>127.0.0.1:50051</code>.</td></tr>
+              <tr><td><code>max.band</code></td><td><code>10</code></td><td>MB/s</td><td>Limite de banda aplicado no socket UDT do Agent.</td><td>Precisa ser positivo. Internamente vira bytes por segundo.</td></tr>
+              <tr><td><code>seg.len</code></td><td><code>1350</code></td><td>bytes</td><td>Tamanho de segmento/MSS usado pelo UDT.</td><td>Precisa ser positivo. Ajuste com cuidado para MTU da rede.</td></tr>
+              <tr><td><code>snd.buf</code></td><td><code>64</code></td><td>MB</td><td>Buffer de envio UDT/UDP.</td><td>Precisa ser positivo. Valor maior ajuda throughput, mas consome memoria.</td></tr>
+              <tr><td><code>rcv.buf</code></td><td><code>64</code></td><td>MB</td><td>Buffer de recebimento UDT/UDP.</td><td>Precisa ser positivo. Mantem simetria com o Server.</td></tr>
+              <tr><td><code>snd.timeout</code></td><td><code>20</code></td><td>segundos</td><td>Timeout de envio no socket UDT.</td><td>Precisa ser positivo. Em rede lenta, valores baixos aumentam retries.</td></tr>
+              <tr><td><code>rcv.timeout</code></td><td><code>20</code></td><td>segundos</td><td>Timeout de recebimento no socket UDT.</td><td>Precisa ser positivo. Afeta espera por respostas/ACKs.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Arquivos monitorados e chunks</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Exemplo</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>data.dirs</code></td><td><code>C:/TransferUDT/Agent/incoming</code></td><td>caminho(s)</td><td>Pastas que o Agent observa. Use <code>;</code> para varias pastas.</td><td>Nao pode ficar vazio. O Agent tenta criar a pasta se ela nao existir. A estrutura relativa abaixo da pasta monitorada e preservada no Server.</td></tr>
+              <tr><td><code>chunk.size</code></td><td><code>256</code></td><td>KB</td><td>Tamanho fixo de cada chunk quando o modo adaptativo esta desligado.</td><td>Precisa ser positivo. Acima de 4096 KB e limitado automaticamente a 4 MB.</td></tr>
+              <tr><td><code>chunk.adaptive.enabled</code></td><td><code>false</code></td><td>booleano</td><td>Quando ligado, o Agent escolhe dinamicamente o proximo chunk usando telemetria de ACK/throughput.</td><td>Use em redes com latencia variavel. Quando desligado, vale <code>chunk.size</code>.</td></tr>
+              <tr><td><code>chunk.adaptive.min_kb</code></td><td><code>32</code></td><td>KB</td><td>Menor chunk permitido no modo adaptativo.</td><td>Precisa ser positivo. Se ficar acima do maximo, e ajustado para o maximo.</td></tr>
+              <tr><td><code>chunk.adaptive.max_kb</code></td><td><code>4096</code></td><td>KB</td><td>Maior chunk permitido no modo adaptativo.</td><td>Precisa ser positivo. Acima de 4096 KB e limitado a 4 MB.</td></tr>
+              <tr><td><code>chunk.adaptive.initial_kb</code></td><td><code>256</code></td><td>KB</td><td>Chunk inicial antes de haver telemetria suficiente.</td><td>Precisa ser positivo. E ajustado para ficar entre min/max.</td></tr>
+              <tr><td><code>chunk.adaptive.target_ack_ms</code></td><td><code>700</code></td><td>ms</td><td>Tempo alvo de ACK usado pelo controlador adaptativo.</td><td>Precisa ser positivo. ACKs lentos reduzem recomendacao; ACKs rapidos permitem crescimento.</td></tr>
+              <tr><td><code>stability.check.interval.seconds</code></td><td><code>5</code></td><td>segundos</td><td>Intervalo entre verificacoes de estabilidade antes de processar arquivo.</td><td>Precisa ser positivo. Evita enviar arquivo ainda em escrita.</td></tr>
+              <tr><td><code>stability.check.count</code></td><td><code>3</code></td><td>contagem</td><td>Quantidade de leituras estaveis exigidas antes do envio.</td><td>Precisa ser positivo. Mais leituras reduzem risco de pegar arquivo incompleto.</td></tr>
+              <tr><td><code>watcher.check.interval.seconds</code></td><td><code>5</code></td><td>segundos</td><td>Intervalo de apoio do watcher.</td><td>Precisa ser positivo. Mantem varredura periodica alem dos eventos de arquivo.</td></tr>
+              <tr><td><code>pending.check.interval.seconds</code></td><td><code>15</code></td><td>segundos</td><td>Intervalo em que chunks pendentes/falhos sao reavaliados.</td><td>Precisa ser positivo. Controla frequencia de retry em segundo plano.</td></tr>
+              <tr><td><code>watcher.exclude.files</code></td><td><code>agent.log</code></td><td>lista</td><td>Arquivos ignorados pelo watcher, separados por virgula.</td><td>Evita que logs e arquivos internos disparem transferencia.</td></tr>
+              <tr><td><code>resend.changed_files.enabled</code></td><td><code>true</code></td><td>booleano</td><td>Permite reenviar o mesmo caminho monitorado quando o conteudo mudar.</td><td>Quando <code>true</code>, o Agent usa fingerprint de conteudo; quando <code>false</code>, volta ao comportamento de enviar uma vez por caminho processado.</td></tr>
+              <tr><td><code>resend.changed_files.identity</code></td><td><code>sha256</code></td><td>enum</td><td>Identidade de conteudo usada para comparar versoes do mesmo caminho.</td><td>O valor suportado atualmente e <code>sha256</code>. Valores invalidos retornam ao default.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Retry, trabalho e memoria</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Exemplo</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>max.retries</code></td><td><code>5</code></td><td>tentativas</td><td>Tentativas por envio de chunk antes de marcar falha naquele ciclo.</td><td>Precisa ser positivo.</td></tr>
+              <tr><td><code>max.retries.abandon</code></td><td><code>25</code></td><td>tentativas acumuladas</td><td>Limite acumulado antes de abandonar um chunk recorrente.</td><td>Precisa ser positivo. Evita retry infinito.</td></tr>
+              <tr><td><code>work.threads</code></td><td><code>4</code></td><td>threads</td><td>Numero de workers locais para processamento/envio.</td><td>Precisa ser positivo. Aumentar pode melhorar paralelismo, mas aumenta I/O e memoria.</td></tr>
+              <tr><td><code>pool.size</code></td><td><code>4</code></td><td>conexoes</td><td>Tamanho do pool de conexoes UDT por endpoint.</td><td>Precisa ser positivo. Deve ser coerente com <code>work.threads</code> e capacidade do Server.</td></tr>
+              <tr><td><code>circuitbreaker.failure.threshold</code></td><td><code>5</code></td><td>falhas</td><td>Falhas consecutivas antes de abrir o circuito para um destino.</td><td>Precisa ser positivo. Protege contra cascata de retries.</td></tr>
+              <tr><td><code>circuitbreaker.reset.timeout.seconds</code></td><td><code>60</code></td><td>segundos</td><td>Tempo para tentar recuperar um circuito aberto.</td><td>Precisa ser positivo.</td></tr>
+              <tr><td><code>memory.usage.percent.limit</code></td><td><code>70</code></td><td>%</td><td>Percentual de memoria usado no calculo de tamanho otimo de chunk.</td><td>Valor entre 0 e 100.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Logs e banco local</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Exemplo</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>log.filepath</code></td><td><code>C:/TransferUDT/Agent/log/agent.log</code></td><td>arquivo</td><td>Caminho do log do Agent.</td><td>Nao pode ser vazio. Garanta permissao de escrita para o servico.</td></tr>
+              <tr><td><code>log.max_size_mb</code></td><td><code>50</code></td><td>MB</td><td>Tamanho maximo antes de rotacao.</td><td>Valor zero ou positivo.</td></tr>
+              <tr><td><code>log.backup_count</code></td><td><code>5</code></td><td>arquivos</td><td>Quantidade de arquivos antigos de log mantidos.</td><td>Valor zero ou positivo.</td></tr>
+              <tr><td><code>log.move.rotate</code></td><td><code>true</code></td><td>booleano</td><td>Parametro mantido no exemplo para politica de rotacao.</td><td><span class="tag warn">Atencao</span> No loader atual do Agent nao ha leitura direta deste parametro; a rotacao efetiva depende de <code>log.max_size_mb</code> e <code>log.backup_count</code>.</td></tr>
+              <tr><td><code>log.flush_level</code></td><td><code>warn</code></td><td>nivel</td><td>Nivel em que o logger deve forcar flush.</td><td>Valores operacionais esperados: <code>always</code>, <code>info</code>, <code>warn</code>, <code>error</code>, <code>never</code>. O loader exige apenas string nao vazia.</td></tr>
+              <tr><td><code>db.filepath</code></td><td><code>C:/TransferUDT/Agent/db/agent.db</code></td><td>arquivo</td><td>Banco SQLite local do Agent para chunks, estado e arquivos processados.</td><td>Nao pode ser vazio. Deve ficar em disco persistente.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Seguranca e Dashboard</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Exemplo</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>security.enabled</code></td><td><code>true</code></td><td>booleano</td><td>Liga envelope seguro AES-GCM para pacotes de transferencia.</td><td>Em producao deve ficar <code>true</code>.</td></tr>
+              <tr><td><code>security.handshake.enabled</code></td><td><code>true</code></td><td>booleano</td><td>Liga autenticacao antes da sessao de transferencia.</td><td>Se desligar junto com seguranca sem <code>security.allow_insecure=true</code>, o Agent falha ao iniciar.</td></tr>
+              <tr><td><code>security.allow_insecure</code></td><td><code>false</code></td><td>booleano</td><td>Permite modo inseguro explicitamente.</td><td>Deixe <code>false</code> em producao. Use <code>true</code> apenas em laboratorio isolado.</td></tr>
+              <tr><td><code>security.identity.mode</code></td><td><code>psk</code></td><td>enum</td><td>Modo de identidade: <code>psk</code> ou <code>signed_handshake</code>.</td><td>Qualquer outro valor e invalido.</td></tr>
+              <tr><td><code>security.client_id</code></td><td><code>agent-default</code></td><td>texto</td><td>Identidade enviada ao Server na autenticacao.</td><td>Obrigatorio, ate 128 caracteres, sem espacos. Deve existir no allowlist/mapa do Server.</td></tr>
+              <tr><td><code>security.psk</code></td><td><code>segredo...</code></td><td>segredo</td><td>Chave compartilhada usada no modo <code>psk</code>.</td><td>Quando seguranca esta ativa em modo PSK, precisa ter 32+ caracteres e nao pode ser o placeholder. Pode ser sobrescrita por <code>AGENT_SECURITY_PSK</code> ou <code>TRANSFERUDT_SECURITY_PSK</code>.</td></tr>
+              <tr><td><code>security.client_private_key_path</code></td><td><code>C:/ProgramData/TransferUDT/Agent/keys/agent-default.key</code></td><td>arquivo</td><td>Chave privada do Agent no modo <code>signed_handshake</code> e para heartbeats assinados do Dashboard.</td><td>Obrigatoria se <code>security.identity.mode=signed_handshake</code> ou se <code>dashboard.enabled=true</code>.</td></tr>
+              <tr><td><code>security.server_public_key_path</code></td><td><code>C:/ProgramData/TransferUDT/Agent/keys/server.pub</code></td><td>arquivo</td><td>Chave publica do Server usada pelo Agent para validar prova assinada.</td><td>Obrigatoria em <code>signed_handshake</code>.</td></tr>
+              <tr><td><code>dashboard.enabled</code></td><td><code>false</code></td><td>booleano</td><td>Envia heartbeat e telemetria do Agent para o Dashboard HTTPS.</td><td>Se <code>true</code>, exige <code>dashboard.url</code> HTTPS e chave privada do Agent.</td></tr>
+              <tr><td><code>dashboard.url</code></td><td><code>https://server:8443</code></td><td>URL</td><td>Endpoint base do Dashboard.</td><td>Precisa comecar com <code>https://</code> quando Dashboard esta habilitado.</td></tr>
+              <tr><td><code>dashboard.heartbeat.interval.seconds</code></td><td><code>15</code></td><td>segundos</td><td>Intervalo entre heartbeats do Agent.</td><td>Precisa ser positivo.</td></tr>
+              <tr><td><code>dashboard.log_tail.lines</code></td><td><code>200</code></td><td>linhas</td><td>Quantidade de linhas recentes de log enviadas no heartbeat.</td><td>Entre 0 e 5000.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="agent-avancado" data-search>
+        <h2>Agent avancado</h2>
+        <p>Os parametros abaixo sao aceitos pelo loader atual mesmo quando nao aparecem no exemplo padrao.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Default</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>retry.jitter.max.ms</code></td><td><code>1000</code></td><td>ms</td><td>Jitter maximo somado ao atraso entre retries.</td><td>Zero ou positivo. Ajuda a evitar varios Agents tentando retry ao mesmo tempo.</td></tr>
+              <tr><td><code>max.file.processing.attempts</code></td><td><code>5</code></td><td>tentativas</td><td>Tentativas para processar novamente um arquivo que falhou no pipeline local.</td><td>Precisa ser positivo.</td></tr>
+              <tr><td><code>udt.require.greeting</code></td><td><code>true</code></td><td>booleano</td><td>Exige greeting inicial do Server antes de usar a conexao.</td><td>Deixe ligado em producao para detectar endpoint errado.</td></tr>
+              <tr><td><code>udt.expected.greeting</code></td><td><code>READY</code></td><td>texto</td><td>Texto esperado no greeting do Server.</td><td>Pode ser alterado apenas se Server/protocolo tambem mudarem.</td></tr>
+              <tr><td><code>udt.greeting.timeout.ms</code></td><td><code>2000</code></td><td>ms</td><td>Timeout para receber o greeting.</td><td>Zero ou positivo. Em rede lenta, aumente com cautela.</td></tr>
+              <tr><td><code>udt.keepalive.enabled</code></td><td><code>false</code></td><td>booleano</td><td>Envia probes periodicos nas conexoes do pool.</td><td>Use quando a rede derruba conexoes ociosas.</td></tr>
+              <tr><td><code>udt.keepalive.interval.seconds</code></td><td><code>60</code></td><td>segundos</td><td>Intervalo entre keep-alives.</td><td>Zero ou positivo.</td></tr>
+              <tr><td><code>udt.keepalive.payload</code></td><td><code>HEARTBEAT</code></td><td>texto</td><td>Payload usado no keep-alive.</td><td>Altere apenas se necessario para interoperabilidade controlada.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="server" data-search>
+        <h2>Server</h2>
+        <p>Arquivo base: <code>ServerUDTC++_v3/config.example.properties</code>.</p>
+
+        <h3>Escuta, clientes e caminhos</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Exemplo</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>server.port</code></td><td><code>50051</code></td><td>porta TCP</td><td>Porta de escuta UDT/TCP do Server.</td><td>Precisa estar entre 1 e 65535.</td></tr>
+              <tr><td><code>server.bind_address</code></td><td><code>127.0.0.1</code></td><td>IP/interface</td><td>Interface local onde o Server escuta.</td><td>Nao pode ser vazio. Use <code>0.0.0.0</code> apenas com firewall/VPN.</td></tr>
+              <tr><td><code>server.allowed_clients</code></td><td><code>127.0.0.1</code></td><td>lista de IPs</td><td>Allowlist de IPs de origem aceitos apos accept.</td><td>Lista separada por virgula. A comparacao e exata por string de IP; nao use CIDR como <code>10.0.0.0/24</code>.</td></tr>
+              <tr><td><code>server.storage_path</code></td><td><code>C:/TransferUDT/Server/storage</code></td><td>diretorio</td><td>Onde chunks e dados intermediarios sao armazenados.</td><td>O Server tenta criar o diretorio se nao existir.</td></tr>
+              <tr><td><code>server.reconstructed_path</code></td><td><code>C:/TransferUDT/Server/reconstructed</code></td><td>diretorio</td><td>Onde arquivos finalizados sao reconstruidos.</td><td>O Server tenta criar o diretorio. O caminho final preserva namespace do cliente e estrutura relativa enviada pelo Agent.</td></tr>
+              <tr><td><code>server.max_file_size_mb</code></td><td><code>10240</code></td><td>MB</td><td>Tamanho maximo de um arquivo logico recebido.</td><td>Precisa ser positivo. Rejeita arquivo acima do limite antes de aceitar o chunk.</td></tr>
+              <tr><td><code>server.max_client_storage_mb</code></td><td><code>20480</code></td><td>MB</td><td>Orcamento maximo de armazenamento reconstruido por cliente.</td><td>Precisa ser positivo. Evita que um cliente ocupe todo o disco.</td></tr>
+              <tr><td><code>resend.changed_files.server_policy</code></td><td><code>overwrite</code></td><td>enum</td><td>Politica para nova versao do mesmo caminho logico ja reconstruido.</td><td>Valores: <code>overwrite</code> substitui output gerenciado; <code>reject</code> rejeita a nova versao; <code>versioned</code> preserva o anterior e grava arquivo com sufixo de versao.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Rede UDT e conexoes</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Exemplo</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>max.band</code></td><td><code>10</code></td><td>MB/s</td><td>Limite de banda no socket Server.</td><td>Precisa ser positivo. Internamente vira bytes por segundo.</td></tr>
+              <tr><td><code>seg.len</code></td><td><code>1350</code></td><td>bytes</td><td>Tamanho de segmento/MSS usado pelo UDT.</td><td>Precisa ser positivo.</td></tr>
+              <tr><td><code>snd.buf</code></td><td><code>64</code></td><td>MB</td><td>Buffer de envio UDT/UDP.</td><td>Precisa ser positivo.</td></tr>
+              <tr><td><code>rcv.buf</code></td><td><code>64</code></td><td>MB</td><td>Buffer de recebimento UDT/UDP.</td><td>Precisa ser positivo.</td></tr>
+              <tr><td><code>snd.timeout</code></td><td><code>60</code></td><td>segundos</td><td>Timeout de envio do Server.</td><td>Precisa ser positivo. Se ausente, o default do codigo e 20 segundos.</td></tr>
+              <tr><td><code>rcv.timeout</code></td><td><code>60</code></td><td>segundos</td><td>Timeout de recebimento do Server.</td><td>Precisa ser positivo. Se ausente, o default do codigo e 20 segundos.</td></tr>
+              <tr><td><code>max.connection</code></td><td><code>100</code></td><td>conexoes</td><td>Limite de conexoes aceitas pelo Server.</td><td>Precisa ser positivo.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Trabalho, fila e resiliencia</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Exemplo</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>work.threads</code></td><td><code>4</code></td><td>threads</td><td>Numero de workers para processar conexoes/chunks.</td><td>Precisa ser positivo.</td></tr>
+              <tr><td><code>work.max_pending_tasks</code></td><td><code>256</code></td><td>tarefas</td><td>Tamanho maximo da fila do pool de trabalho.</td><td>Precisa ser positivo e caber em <code>size_t</code>. Se lotar, novas conexoes podem ser fechadas.</td></tr>
+              <tr><td><code>circuitbreaker.failure.threshold</code></td><td><code>5</code></td><td>falhas</td><td>Falhas consecutivas antes de abrir circuito.</td><td>Precisa ser positivo.</td></tr>
+              <tr><td><code>circuitbreaker.reset.timeout.seconds</code></td><td><code>60</code></td><td>segundos</td><td>Tempo antes de tentar recuperar circuito aberto.</td><td>Precisa ser positivo.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Logs, banco e teste</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Exemplo</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>log.filepath</code></td><td><code>C:/TransferUDT/Server/log/server.log</code></td><td>arquivo</td><td>Caminho do log do Server.</td><td>Nao pode ser vazio. Garanta permissao de escrita.</td></tr>
+              <tr><td><code>db.filepath</code></td><td><code>C:/TransferUDT/Server/db/server.db</code></td><td>arquivo</td><td>Banco SQLite do Server para chunks e arquivos reconstruidos.</td><td>Nao pode ser vazio. Deve ficar em disco persistente.</td></tr>
+              <tr><td><code>log.max_size_mb</code></td><td><code>50</code></td><td>MB</td><td>Tamanho maximo antes de rotacao de log.</td><td>Valor zero ou positivo.</td></tr>
+              <tr><td><code>log.backup_count</code></td><td><code>5</code></td><td>arquivos</td><td>Quantidade de backups de log mantidos.</td><td>Valor zero ou positivo.</td></tr>
+              <tr><td><code>log.flush_level</code></td><td><code>warn</code></td><td>nivel</td><td>Nivel de flush do logger.</td><td>Valores operacionais esperados: <code>always</code>, <code>info</code>, <code>warn</code>, <code>error</code>, <code>never</code>. O loader exige apenas string nao vazia.</td></tr>
+              <tr><td><code>test.ack_delay_pattern_ms</code></td><td><code></code></td><td>ms por chunk</td><td>Padrao de atraso artificial de ACK, separado por virgulas.</td><td>Use somente em teste E2E. Cada item precisa ser inteiro nao negativo.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Seguranca</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Exemplo</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>security.enabled</code></td><td><code>true</code></td><td>booleano</td><td>Liga envelope seguro AES-GCM para pacotes.</td><td>Em producao deve ficar <code>true</code>.</td></tr>
+              <tr><td><code>security.handshake.enabled</code></td><td><code>true</code></td><td>booleano</td><td>Liga autenticacao antes de aceitar transferencia.</td><td>Se desligar sem <code>security.allow_insecure=true</code>, o Server falha ao iniciar.</td></tr>
+              <tr><td><code>security.allow_insecure</code></td><td><code>false</code></td><td>booleano</td><td>Permite modo inseguro explicitamente.</td><td>Use apenas em laboratorio isolado.</td></tr>
+              <tr><td><code>security.identity.mode</code></td><td><code>psk</code></td><td>enum</td><td>Modo de identidade: <code>psk</code> ou <code>signed_handshake</code>.</td><td>Qualquer outro valor e invalido.</td></tr>
+              <tr><td><code>security.allowed_client_ids</code></td><td><code>agent-default</code></td><td>lista</td><td>Allowlist de identidades logicas do Agent.</td><td>Lista separada por virgulas. Vazia permite qualquer identidade que passe a validacao do modo escolhido.</td></tr>
+              <tr><td><code>security.client_psk.&lt;client_id&gt;</code></td><td><code>security.client_psk.agent-default = segredo...</code></td><td>segredo por cliente</td><td>PSK especifica para um Agent.</td><td>O <code>client_id</code> precisa ser nao vazio, ate 128 caracteres, sem espacos. Valor precisa ter 32+ caracteres e nao pode ser placeholder.</td></tr>
+              <tr><td><code>security.psk</code></td><td><code>segredo...</code></td><td>segredo global</td><td>Fallback global para implantacoes simples com PSK unico.</td><td>Pode ser sobrescrita por <code>SERVER_SECURITY_PSK</code> ou <code>TRANSFERUDT_SECURITY_PSK</code>. Quando ha <code>security.client_psk.*</code>, prefira PSK por cliente.</td></tr>
+              <tr><td><code>security.server_private_key_path</code></td><td><code>C:/ProgramData/TransferUDT/Server/keys/server.key</code></td><td>arquivo</td><td>Chave privada do Server no modo <code>signed_handshake</code>.</td><td>Obrigatoria em <code>signed_handshake</code>.</td></tr>
+              <tr><td><code>security.client_public_key.&lt;client_id&gt;</code></td><td><code>security.client_public_key.agent-default = C:/.../agent-default.pub</code></td><td>arquivo</td><td>Chave publica do Agent autorizada no modo <code>signed_handshake</code>.</td><td>Ao menos uma entrada e obrigatoria em <code>signed_handshake</code>. Tambem restringe quais IDs sao aceitos.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="server-avancado" data-search>
+        <h2>Server avancado</h2>
+        <p>Os parametros abaixo sao aceitos pelo loader atual mesmo quando nao aparecem no exemplo padrao.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Default</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>ling.on</code></td><td><code>1</code></td><td>0/1</td><td>Habilita a opcao UDT linger ao fechar socket.</td><td>Aceita somente <code>0</code> ou <code>1</code>.</td></tr>
+              <tr><td><code>ling.time</code></td><td><code>5</code></td><td>segundos</td><td>Tempo de linger quando <code>ling.on=1</code>.</td><td>Precisa ser positivo.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="seguranca" data-search>
+        <h2>Seguranca</h2>
+        <div class="callout danger">
+          <strong>Nunca use o placeholder em producao.</strong> Qualquer PSK real
+          deve ter no minimo 32 caracteres, deve ser diferente por ambiente e
+          nao deve ser versionada.
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Modo</th><th>Quando usar</th><th>Agent exige</th><th>Server exige</th></tr></thead>
+            <tbody>
+              <tr><td><code>psk</code></td><td>Implantacao simples ou ambiente controlado com segredo compartilhado por Agent.</td><td><code>security.client_id</code> e <code>security.psk</code>.</td><td><code>security.client_psk.&lt;client_id&gt;</code> ou <code>security.psk</code>; idealmente com <code>security.allowed_client_ids</code>.</td></tr>
+              <tr><td><code>signed_handshake</code></td><td>Rede privada de producao com identidade por chave assimetrica e chaves de sessao efemeras.</td><td><code>security.client_private_key_path</code> e <code>security.server_public_key_path</code>.</td><td><code>security.server_private_key_path</code> e <code>security.client_public_key.&lt;client_id&gt;</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="exemplos" data-search>
+        <h2>Exemplos</h2>
+        <h3>Agent PSK minimo</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>server.targets = 10.0.0.10:50051
+data.dirs = C:/ProgramData/TransferUDT/Agent/watch
+resend.changed_files.enabled = true
+resend.changed_files.identity = sha256
+security.enabled = true
+security.handshake.enabled = true
+security.allow_insecure = false
+security.identity.mode = psk
+security.client_id = agent-001
+security.psk = troque-por-um-segredo-forte-com-32-ou-mais-caracteres</code></pre>
+        </div>
+
+        <h3>Server PSK minimo</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>server.bind_address = 0.0.0.0
+server.port = 50051
+server.allowed_clients = 10.0.0.11,10.0.0.12
+server.storage_path = C:/ProgramData/TransferUDT/Server/storage
+server.reconstructed_path = C:/ProgramData/TransferUDT/Server/reconstructed
+resend.changed_files.server_policy = overwrite
+security.enabled = true
+security.handshake.enabled = true
+security.allow_insecure = false
+security.identity.mode = psk
+security.allowed_client_ids = agent-001
+security.client_psk.agent-001 = troque-por-um-segredo-forte-com-32-ou-mais-caracteres</code></pre>
+        </div>
+
+        <h3>Signed handshake</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code># Agent
+security.identity.mode = signed_handshake
+security.client_id = agent-001
+security.client_private_key_path = C:/ProgramData/TransferUDT/Agent/keys/agent-001.key
+security.server_public_key_path = C:/ProgramData/TransferUDT/Agent/keys/server.pub
+
+# Server
+security.identity.mode = signed_handshake
+security.allowed_client_ids = agent-001
+security.server_private_key_path = C:/ProgramData/TransferUDT/Server/keys/server.key
+security.client_public_key.agent-001 = C:/ProgramData/TransferUDT/Server/clients/agent-001.pub</code></pre>
+        </div>
+      </section>
+
+      <section id="operacao" data-search>
+        <h2>Operacao</h2>
+        <ul>
+          <li>Depois de alterar <code>config.properties</code>, reinicie o servico correspondente.</li>
+          <li>Para Agent, valide <code>server.targets</code>, <code>data.dirs</code>, <code>security.client_id</code> e PSK/chaves antes de iniciar.</li>
+          <li>Para Server, valide <code>server.allowed_clients</code>, <code>security.allowed_client_ids</code>, limites de tamanho e caminhos de disco.</li>
+          <li>Se um arquivo for alterado no mesmo caminho monitorado e <code>resend.changed_files.enabled=true</code>, o Agent detecta novo conteudo por SHA-256 e reenvia; o Server aplica <code>resend.changed_files.server_policy</code>.</li>
+          <li>A estrutura de subpastas dentro da pasta monitorada e preservada no destino reconstruido do Server.</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const links = Array.from(document.querySelectorAll("nav a"));
+    const sections = Array.from(document.querySelectorAll("section"));
+    const search = document.getElementById("search");
+
+    function setActive() {
+      let current = sections[0]?.id;
+      for (const section of sections) {
+        if (section.getBoundingClientRect().top < 140) current = section.id;
+      }
+      links.forEach(link => link.classList.toggle("active", link.getAttribute("href") === "#" + current));
+    }
+
+    function filterDocs() {
+      const term = search.value.trim().toLowerCase();
+      sections.forEach(section => {
+        const text = section.innerText.toLowerCase();
+        section.classList.toggle("hidden", term.length > 0 && !text.includes(term));
+      });
+    }
+
+    document.addEventListener("scroll", setActive, { passive: true });
+    search.addEventListener("input", filterDocs);
+
+    document.querySelectorAll(".copy").forEach(button => {
+      button.addEventListener("click", async () => {
+        const code = button.parentElement.querySelector("code").innerText;
+        await navigator.clipboard.writeText(code);
+        const old = button.textContent;
+        button.textContent = "Copiado";
+        setTimeout(() => button.textContent = old, 1200);
+      });
+    });
+
+    setActive();
+  </script>
+</body>
+</html>

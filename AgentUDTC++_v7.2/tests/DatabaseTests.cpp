@@ -91,6 +91,25 @@ void runDatabaseTests(TestStats& stats, Database& db, const TestEnvironment& env
         require(db.isFileFullyProcessed(filePath), "File must remain marked as processed after chunk cleanup.");
     }, stats);
 
+    runTest("Database - changed fingerprint reprocesses same file path", [&]() {
+        const std::filesystem::path filename = "same_path_fingerprint.bin";
+        const std::filesystem::path filePath = env.tempRoot / "db_fingerprint" / filename;
+
+        require(db.markFileAsProcessingIfChanged(filePath, 3, 100, "hash_a"),
+                "First fingerprint should be accepted for processing.");
+        db.addProcessedFileAndCleanupChunks(filePath);
+
+        require(!db.markFileAsProcessingIfChanged(filePath, 3, 100, "hash_a"),
+                "Same fingerprint should not be processed again.");
+        require(db.isFileFullyProcessed(filePath),
+                "Same fingerprint should keep the file marked as processed.");
+
+        require(db.markFileAsProcessingIfChanged(filePath, 4, 101, "hash_b"),
+                "Changed fingerprint at the same path should be accepted.");
+        require(!db.isFileFullyProcessed(filePath),
+                "Changed fingerprint should move the file out of processed state.");
+    }, stats);
+
     runTest("Database - markFileAsFailed creates status row when missing", [&]() {
         const std::filesystem::path filePath = env.tempRoot / "db_failed" / "failed_without_processing.bin";
         db.markFileAsFailed(filePath);
@@ -105,5 +124,28 @@ void runDatabaseTests(TestStats& stats, Database& db, const TestEnvironment& env
         }
 
         require(found, "markFileAsFailed should create/update a failed row in processed_files.");
+    }, stats);
+
+    runTest("Database - pending chunks preserve dynamic byte offset", [&]() {
+        const std::filesystem::path filename = "dynamic_offset.bin";
+        const std::filesystem::path filePath = env.tempRoot / "db_offsets" / filename;
+        constexpr uint64_t chunkOffset = 12345;
+
+        db.insertChunk(filename, 2, 0, 200, 75, "hash_offset", filePath,
+                       "failed", chunkOffset);
+
+        bool found = false;
+        auto pendingChunks = db.getPendingChunks(10'000);
+        for (const auto& chunk : pendingChunks) {
+            if (chunk.getFilePath() == filePath && chunk.getChunkNumber() == 2) {
+                found = true;
+                require(chunk.getTotalChunk() == 0,
+                        "Adaptive non-final pending chunk should keep unknown total.");
+                require(chunk.getChunkOffset() == chunkOffset,
+                        "Pending chunk should preserve its byte offset for retry.");
+            }
+        }
+
+        require(found, "Inserted failed adaptive chunk should be returned as pending.");
     }, stats);
 }

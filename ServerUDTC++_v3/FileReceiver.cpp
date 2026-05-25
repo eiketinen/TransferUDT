@@ -1,6 +1,9 @@
 ﻿#include "FileReceiver.h"
+#include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <thread>
@@ -68,6 +71,26 @@ fs::path normalizePathForFs(const fs::path &inputPath) {
 std::string buildReconstructionKey(const std::string &clientAddress,
                                    const std::string &filename) {
   return clientAddress + "|" + filename;
+}
+
+std::string buildVersionedFilename(const std::string &filename) {
+  static std::atomic<uint64_t> versionCounter{0};
+  const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+  const auto counter = versionCounter.fetch_add(1, std::memory_order_relaxed);
+  const std::string suffix =
+      ".v" + std::to_string(nowMs) + "-" + std::to_string(counter);
+
+  const auto slash = filename.find_last_of("/\\");
+  const auto dot = filename.find_last_of('.');
+  const bool hasExtension =
+      dot != std::string::npos && (slash == std::string::npos || dot > slash) &&
+      dot != (slash == std::string::npos ? 0 : slash + 1);
+  if (!hasExtension) {
+    return filename + suffix;
+  }
+  return filename.substr(0, dot) + suffix + filename.substr(dot);
 }
 
 FileReceiver::FileReceiver(Database &db,
@@ -188,11 +211,47 @@ FileReceiver::getReconstructedFilePath(const std::string &clientAddress,
 FileReceiver::ReceiveResult
 FileReceiver::receiveChunk(const ChunkMetadata &chunk,
                            const std::vector<char> &chunkData) {
-  const std::string &filename = chunk.getFilename();
-  const std::string clDirKey = chunk.getClientAddress() + "/" + chunk.getDirectory();
-  const std::string reconKey = buildReconstructionKey(clDirKey, filename);
-  fs::path reconstructedFilePath = getReconstructedFilePath(
-      clDirKey, chunk.getFilename());
+  ChunkMetadata effectiveChunk = chunk;
+  std::string filename = effectiveChunk.getFilename();
+  const std::string clDirKey =
+      effectiveChunk.getClientAddress() + "/" + effectiveChunk.getDirectory();
+  const std::string originalFilename = filename;
+  const std::string originalReconKey =
+      buildReconstructionKey(clDirKey, originalFilename);
+  const bool isFirstChunk = effectiveChunk.getChunkNumber() == 0 &&
+                            effectiveChunk.getChunkOffset() == 0;
+  const auto samePathPolicy = config.getChangedFilesServerPolicy();
+  std::string reconKey;
+  fs::path reconstructedFilePath;
+  bool replaceReconstructedFile = false;
+  bool versionedSamePathTransfer = false;
+
+  auto refreshEffectivePath = [&]() {
+    reconKey = buildReconstructionKey(clDirKey, filename);
+    reconstructedFilePath = getReconstructedFilePath(clDirKey, filename);
+  };
+  auto switchToVersionedFilename = [&]() {
+    filename = buildVersionedFilename(originalFilename);
+    effectiveChunk.setFilename(filename);
+    refreshEffectivePath();
+    versionedSamePathTransfer = true;
+    {
+      std::lock_guard<std::mutex> lock(versionedTransfersMutex);
+      versionedTransferFilenames[originalReconKey] = filename;
+    }
+  };
+
+  if (!isFirstChunk &&
+      samePathPolicy == ServerConfig::ChangedFilesServerPolicy::Versioned) {
+    std::lock_guard<std::mutex> lock(versionedTransfersMutex);
+    const auto it = versionedTransferFilenames.find(originalReconKey);
+    if (it != versionedTransferFilenames.end()) {
+      filename = it->second;
+      effectiveChunk.setFilename(filename);
+      versionedSamePathTransfer = true;
+    }
+  }
+  refreshEffectivePath();
 
   // Check whether reconstruction has already been completed for this file.
   // NOTE: We cannot rely on fs::exists(reconstructedFilePath) alone because chunks
@@ -209,46 +268,85 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
   try {
     isReconstructedInDb = database.isFileReconstructed(clDirKey, filename);
     if (isReconstructedInDb) {
-      Logger::getInstance().warningC(
-          "FileReceiver::receiveChunk", filename,
-          "File '{}' is already marked as reconstructed. Skipping chunk {}.",
-          chunk.getFilename(), chunk.getChunkNumber());
-      return ReceiveResult::AlreadyCompleted;
+      if (isFirstChunk) {
+        if (samePathPolicy == ServerConfig::ChangedFilesServerPolicy::Reject) {
+          Logger::getInstance().warningC(
+              "FileReceiver::receiveChunk", filename,
+              "File '{}' is already reconstructed. Rejecting changed same-path "
+              "content by server policy.",
+              originalFilename);
+          return ReceiveResult::AlreadyCompleted;
+        }
+        if (samePathPolicy ==
+            ServerConfig::ChangedFilesServerPolicy::Versioned) {
+          switchToVersionedFilename();
+          Logger::getInstance().infoC(
+              "FileReceiver::receiveChunk", filename,
+              "File '{}' is already reconstructed. Versioning managed output "
+              "as '{}'.",
+              originalFilename, filename);
+        } else {
+          replaceReconstructedFile = true;
+          Logger::getInstance().infoC(
+              "FileReceiver::receiveChunk", filename,
+              "File '{}' is already reconstructed, but a new first chunk arrived. "
+              "Replacing managed output.",
+              originalFilename);
+        }
+      } else {
+        Logger::getInstance().warningC(
+            "FileReceiver::receiveChunk", filename,
+            "File '{}' is already marked as reconstructed. Skipping chunk {}.",
+            effectiveChunk.getFilename(), effectiveChunk.getChunkNumber());
+        return ReceiveResult::AlreadyCompleted;
+      }
     }
 
-    hasChunkRows = database.getTotalChunkCount(clDirKey, filename) > 0;
+    hasChunkRows = database.getChunkRowCount(clDirKey, filename) > 0;
     const bool fileExistsOnDisk =
         fs::exists(normalizePathForFs(reconstructedFilePath));
     Logger::getInstance().debugC(
         "FileReceiver::receiveChunk", filename,
         "Completion pre-check for '{}': reconstructed_in_db={}, "
         "has_chunk_rows={}, file_exists_on_disk={}.",
-        chunk.getFilename(), isReconstructedInDb, hasChunkRows, fileExistsOnDisk);
-    if (!hasChunkRows && fileExistsOnDisk) {
-      Logger::getInstance().warningC(
-          "FileReceiver::receiveChunk", filename,
-          "File '{}' already exists with no pending chunk metadata. "
-          "Skipping chunk {}.",
-          chunk.getFilename(), chunk.getChunkNumber());
-      return ReceiveResult::AlreadyCompleted;
+        effectiveChunk.getFilename(), isReconstructedInDb, hasChunkRows,
+        fileExistsOnDisk);
+    if (!replaceReconstructedFile && !hasChunkRows && fileExistsOnDisk) {
+      if (isFirstChunk &&
+          samePathPolicy == ServerConfig::ChangedFilesServerPolicy::Versioned) {
+        switchToVersionedFilename();
+        Logger::getInstance().infoC(
+            "FileReceiver::receiveChunk", filename,
+            "File '{}' already exists outside reconstructed metadata. "
+            "Versioning incoming output as '{}'.",
+            originalFilename, filename);
+      } else {
+        Logger::getInstance().warningC(
+            "FileReceiver::receiveChunk", filename,
+            "File '{}' already exists with no pending chunk metadata. "
+            "Skipping chunk {}.",
+            effectiveChunk.getFilename(), effectiveChunk.getChunkNumber());
+        return ReceiveResult::AlreadyCompleted;
+      }
     }
   } catch (const std::exception &e) {
     Logger::getInstance().errorC(
         "FileReceiver::receiveChunk", filename,
         "Failed to check completion state for '{}': {}",
-        chunk.getFilename(), e.what());
+        effectiveChunk.getFilename(), e.what());
     return ReceiveResult::Failed;
   }
 
   {
     std::lock_guard<std::mutex> lock(reconstructionMutex);
     auto it = reconstructionStatus.find(reconKey);
-    if (it != reconstructionStatus.end() && it->second) {
+    if (it != reconstructionStatus.end() && it->second &&
+        !replaceReconstructedFile) {
       Logger::getInstance().warningC("FileReceiver::receiveChunk", filename,
                                      "Chunk {} for file '{}' already exists. "
                                      "Skipping processing of this chunk.",
-                                     chunk.getChunkNumber(),
-                                     chunk.getFilename());
+                                     effectiveChunk.getChunkNumber(),
+                                     effectiveChunk.getFilename());
       return ReceiveResult::AlreadyCompleted;
     }
   }
@@ -257,18 +355,18 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
     Logger::getInstance().criticalC(
         "FileReceiver::receiveChunk", filename,
         "Cannot receive chunk for '{}', verifier is not initialized.",
-        chunk.getFilename());
+        effectiveChunk.getFilename());
     return ReceiveResult::Failed;
   }
   // 1. Verify Hash
   std::string calculatedHash = verifier->calculateChunkHash(chunkData);
-  if (calculatedHash != chunk.getHash()) {
+  if (calculatedHash != effectiveChunk.getHash()) {
     Logger::getInstance().errorC(
         "FileReceiver::receiveChunk", filename,
         "Hash mismatch for chunk {} of file '{}'. Expected: {}, Calculated: "
         "{}. Discarding chunk.",
-        chunk.getChunkNumber(), chunk.getFilename(), chunk.getHash(),
-        calculatedHash);
+        effectiveChunk.getChunkNumber(), effectiveChunk.getFilename(),
+        effectiveChunk.getHash(), calculatedHash);
     return ReceiveResult::Failed; // Indicate failure due to hash mismatch
   }
 
@@ -283,57 +381,84 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
   }
 
   const std::string clientDirectory =
-      chunk.getClientAddress() + "/" + chunk.getDirectory();
+      effectiveChunk.getClientAddress() + "/" + effectiveChunk.getDirectory();
   bool chunkKnownInDb = false;
   try {
-    if (database.isChunkSuccessful(clientDirectory, chunk.getFilename(),
-                                   chunk.getChunkNumber())) {
+    if (database.isChunkSuccessful(clientDirectory, effectiveChunk.getFilename(),
+                                   effectiveChunk.getChunkNumber())) {
       Logger::getInstance().warningC(
           "FileReceiver::receiveChunk", filename,
           "Chunk {} for file '{}' was already stored successfully. Skipping "
           "duplicate without updating counters.",
-          chunk.getChunkNumber(), chunk.getFilename());
+          effectiveChunk.getChunkNumber(), effectiveChunk.getFilename());
       return ReceiveResult::Stored;
     }
 
     chunkKnownInDb = database.getChunkStatus(clientDirectory,
-                                             chunk.getFilename(),
-                                             chunk.getChunkNumber()) != 0;
+                                             effectiveChunk.getFilename(),
+                                             effectiveChunk.getChunkNumber()) != 0;
     if (chunkKnownInDb) {
       Logger::getInstance().warningC(
           "FileReceiver::receiveChunk", filename,
           "Chunk {} for file '{}' already exists in DB but is not successful. "
           "Retrying disk write and status update.",
-          chunk.getChunkNumber(), chunk.getFilename());
+          effectiveChunk.getChunkNumber(), effectiveChunk.getFilename());
     }
   } catch (const DatabaseException &e) {
     Logger::getInstance().criticalC(
         "FileReceiver::receiveChunk", filename,
         "Database error processing chunk {} for file '{}': {}",
-        chunk.getChunkNumber(), chunk.getFilename(), e.what());
+        effectiveChunk.getChunkNumber(), effectiveChunk.getFilename(), e.what());
     return ReceiveResult::Failed;
   } catch (const std::exception &e) {
     Logger::getInstance().criticalC(
         "FileReceiver::receiveChunk", filename,
         "Generic error processing chunk {} for file '{}': {}",
-        chunk.getChunkNumber(), chunk.getFilename(), e.what());
+        effectiveChunk.getChunkNumber(), effectiveChunk.getFilename(), e.what());
     return ReceiveResult::Failed;
   }
 
   // 3. Write Chunk to File
   try {
-    std::string fileKey = buildReconstructionKey(clDirKey, chunk.getFilename());
+    std::string fileKey =
+        buildReconstructionKey(clDirKey, effectiveChunk.getFilename());
     std::mutex &fileMutex = getFileMutex(fileKey);
 
     std::lock_guard<std::mutex> lock(fileMutex);
 
     const uintmax_t targetFileSize =
-        chunk.getTotalFileSize() > 0
-            ? static_cast<uintmax_t>(chunk.getTotalFileSize())
+        effectiveChunk.getTotalFileSize() > 0
+            ? static_cast<uintmax_t>(effectiveChunk.getTotalFileSize())
             : static_cast<uintmax_t>(chunkData.size());
     const fs::path normalizedReconstructedPath =
         normalizePathForFs(reconstructedFilePath);
-    if (!prepareOutputFileForChunk(chunk, chunkData.size(),
+    if (replaceReconstructedFile) {
+      try {
+        database.beginTransaction();
+        database.deleteReconstructedFile(clDirKey, filename);
+        database.deleteChunksByFile(clDirKey, filename);
+        database.commitTransaction();
+      } catch (...) {
+        database.rollbackTransaction();
+        throw;
+      }
+
+      {
+        std::lock_guard<std::mutex> reconstructionLock(reconstructionMutex);
+        reconstructionStatus.erase(reconKey);
+      }
+
+      std::error_code fsError;
+      if (fs::exists(normalizedReconstructedPath, fsError)) {
+        fs::remove(normalizedReconstructedPath, fsError);
+      }
+      if (fsError) {
+        throw std::runtime_error(
+            "Failed to replace reconstructed file: " + fsError.message());
+      }
+    }
+
+    if (!prepareOutputFileForChunk(effectiveChunk, chunkData.size(),
                                    reconstructedFolder,
                                    normalizedReconstructedPath,
                                    targetFileSize)) {
@@ -374,7 +499,7 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
       }
 
       OfstreamRAII ofsGuard(ofs); // RAII wrapper
-      ofs.seekp(chunk.getChunkOffset(), std::ios::beg);
+      ofs.seekp(effectiveChunk.getChunkOffset(), std::ios::beg);
       ofs.write(chunkData.data(), chunkData.size());
       if (!ofs.good()) {
         lastError = "Error writing data to file";
@@ -435,88 +560,105 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
   try {
     if (!chunkKnownInDb) {
       chunkKnownInDb = database.getChunkStatus(clientDirectory,
-                                               chunk.getFilename(),
-                                               chunk.getChunkNumber()) != 0;
+                                               effectiveChunk.getFilename(),
+                                               effectiveChunk.getChunkNumber()) != 0;
     }
     if (!chunkKnownInDb) {
-      database.insertChunk(clientDirectory, chunk.getFilename(),
-                           chunk.getChunkNumber(), chunk.getTotalChunk(),
-                           chunk.getHash(), reconstructedFilePath);
+      database.insertChunk(clientDirectory, effectiveChunk.getFilename(),
+                           effectiveChunk.getChunkNumber(),
+                           effectiveChunk.getTotalChunk(),
+                           effectiveChunk.getHash(), reconstructedFilePath);
       Logger::getInstance().infoC(
           "FileReceiver::receiveChunk", filename,
           "Successfully saved chunk {} for file '{}' to DB.",
-          chunk.getChunkNumber(), chunk.getFilename());
+          effectiveChunk.getChunkNumber(), effectiveChunk.getFilename());
     }
-    database.updateChunkStatus(clientDirectory, chunk.getFilename(),
-                               chunk.getChunkNumber(), "success");
+    database.updateChunkStatus(clientDirectory, effectiveChunk.getFilename(),
+                               effectiveChunk.getChunkNumber(), "success");
     Logger::getInstance().infoC(
         "FileReceiver::receiveChunk", filename,
         "Successfully saved chunk {} for file '{}' to DB and disk.",
-        chunk.getChunkNumber(), chunk.getFilename());
+        effectiveChunk.getChunkNumber(), effectiveChunk.getFilename());
   } catch (const DatabaseException &e) {
     Logger::getInstance().errorC(
         "FileReceiver::receiveChunk", filename,
         "Database error processing chunk {} for file '{}': {}",
-        chunk.getChunkNumber(), chunk.getFilename(), e.what());
+        effectiveChunk.getChunkNumber(), effectiveChunk.getFilename(), e.what());
     // Attempt to clean up the DB
     return ReceiveResult::Failed;
   } catch (const std::exception &e) {
     Logger::getInstance().criticalC(
         "FileReceiver::receiveChunk", filename,
         "Generic error processing chunk {} for file '{}': {}",
-        chunk.getChunkNumber(), chunk.getFilename(), e.what());
+        effectiveChunk.getChunkNumber(), effectiveChunk.getFilename(), e.what());
     return ReceiveResult::Failed;
   }
 
-  // 5. Atomic Counter decrement
-  std::string clDir = chunk.getClientAddress() + "/" + chunk.getDirectory();
-  std::string fileKey = buildReconstructionKey(clDir, chunk.getFilename());
-  int chunksLeft = -1;
+  // 5. Completion accounting. Fixed-size legacy transfers declare the total in
+  // every chunk. Adaptive transfers declare total_chunk=0 until the final chunk.
+  std::string clDir =
+      effectiveChunk.getClientAddress() + "/" + effectiveChunk.getDirectory();
+  std::string fileKey =
+      buildReconstructionKey(clDir, effectiveChunk.getFilename());
+  int declaredTotalChunks = effectiveChunk.getTotalChunk();
+
+  if (declaredTotalChunks <= 0) {
+    declaredTotalChunks =
+        database.getTotalChunkCount(clDir, effectiveChunk.getFilename());
+    if (declaredTotalChunks <= 0) {
+      Logger::getInstance().infoC(
+          "FileReceiver::receiveChunk", filename,
+          "Stored adaptive non-final chunk {} for '{}'. Waiting for final "
+          "chunk to declare total count.",
+          effectiveChunk.getChunkNumber(), effectiveChunk.getFilename());
+      return ReceiveResult::Stored;
+    }
+  }
+
+  const int successfulCount = static_cast<int>(
+      database.getChunksForFile(clDir, effectiveChunk.getFilename()).size());
+  if (successfulCount < declaredTotalChunks) {
+    std::lock_guard<std::mutex> lockCounters(remainingChunksMutex);
+    remainingChunks[fileKey] = declaredTotalChunks - successfulCount;
+    Logger::getInstance().infoC(
+        "FileReceiver::receiveChunk", filename,
+        "Stored chunk {} for '{}'. {}/{} chunks received.",
+        effectiveChunk.getChunkNumber(), effectiveChunk.getFilename(),
+        successfulCount, declaredTotalChunks);
+    return ReceiveResult::Stored;
+  }
+
+  Logger::getInstance().infoC(
+      "FileReceiver::receiveChunk", filename,
+      "All {} chunks received for '{}'. Enqueuing finalization.",
+      declaredTotalChunks, effectiveChunk.getFilename());
+
+  const std::string key = fileKey;
+  {
+    std::lock_guard<std::mutex> lock(reconstructionMutex);
+    if (reconstructionStatus.find(key) == reconstructionStatus.end() ||
+        !reconstructionStatus[key]) {
+      reconstructionStatus[key] = true;
+      try {
+        threadPool.addTask([this, cAddress = clDir,
+                            fname = effectiveChunk.getFilename()]() {
+          this->tryReconstructFile(cAddress, fname);
+        });
+      } catch (...) {
+        reconstructionStatus.erase(key);
+      }
+    }
+  }
 
   {
     std::lock_guard<std::mutex> lockCounters(remainingChunksMutex);
-    auto it = remainingChunks.find(fileKey);
-    if (it == remainingChunks.end()) {
-      // First chunk seen for this file in RAM.
-      // Initialize from total and subtract 1 for the current chunk.
-      remainingChunks[fileKey] = chunk.getTotalChunk() - 1;
-    } else {
-      it->second--;
-    }
-    chunksLeft = remainingChunks[fileKey];
+    remainingChunks.erase(fileKey);
   }
-
-  if (chunksLeft <= 0) {
-    Logger::getInstance().infoC(
-        "FileReceiver::receiveChunk", filename,
-        "All {} chunks received for '{}'. Enqueuing finalization.",
-        chunk.getTotalChunk(), chunk.getFilename());
-
-    const std::string key = fileKey;
-    {
-      std::lock_guard<std::mutex> lock(reconstructionMutex);
-      if (reconstructionStatus.find(key) == reconstructionStatus.end() ||
-          !reconstructionStatus[key]) {
-        reconstructionStatus[key] = true;
-        try {
-          threadPool.addTask(
-              [this, cAddress = clDir, fname = chunk.getFilename()]() {
-                this->tryReconstructFile(cAddress, fname);
-              });
-        } catch (...) {
-          reconstructionStatus.erase(key);
-        }
-      }
-    }
-
-    {
-      std::lock_guard<std::mutex> lockCounters(remainingChunksMutex);
-      remainingChunks.erase(fileKey);
-    }
-    return ReceiveResult::JustCompleted;
+  if (versionedSamePathTransfer) {
+    std::lock_guard<std::mutex> lock(versionedTransfersMutex);
+    versionedTransferFilenames.erase(originalReconKey);
   }
-
-  return ReceiveResult::Stored; // Chunk processed successfully
+  return ReceiveResult::JustCompleted;
 }
 
 /**
@@ -555,8 +697,21 @@ void FileReceiver::tryReconstructFile(const std::string &clientAddress,
       return; // Exit if no chunks found
     }
 
-    // Basic validation: check if sequence is contiguous and matches total count
-    int expectedTotal = chunks[0].getTotalChunk();
+    // Basic validation: check if sequence is contiguous and matches total count.
+    // Adaptive transfers only know the total once the final chunk arrives, so
+    // use the maximum declared total across successful chunks.
+    int expectedTotal = 0;
+    for (const auto &chunk : chunks) {
+      expectedTotal = (std::max)(expectedTotal, chunk.getTotalChunk());
+    }
+    if (expectedTotal <= 0) {
+      Logger::getInstance().warningC(
+          "FileReconstructor::tryReconstructFile", filename,
+          "No final chunk has declared the total count for '{}'. Aborting "
+          "finalization.",
+          filename);
+      return;
+    }
     if (static_cast<int>(chunks.size()) != expectedTotal) {
       Logger::getInstance().warningC(
           "FileReconstructor::tryReconstructFile", filename,
@@ -838,6 +993,15 @@ void FileReceiver::loadPendingCounters() {
     for (const auto &info : counters) {
       std::string fileKey =
           buildReconstructionKey(info.clientAddress, info.filename);
+      if (info.totalChunks <= 0) {
+        Logger::getInstance().info(
+            "FileReceiver::loadPendingCounters",
+            "Recovered adaptive transfer '{}' with {} chunk(s) and unknown "
+            "total. Waiting for final chunk before finalization.",
+            fileKey, info.successfulCount);
+        continue;
+      }
+
       int remaining = info.totalChunks - info.successfulCount;
       if (remaining > 0) {
         remainingChunks[fileKey] = remaining;

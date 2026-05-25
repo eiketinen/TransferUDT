@@ -247,8 +247,8 @@ void FileWatcher::processExistingFiles(const std::function<void(const fs::path&)
     std::string directoryPathStr = directoryPath.u8string();
     Logger::getInstance().info("FileWatcher::processExistingFiles", "Starting initial scan for existing files in: " + directoryPathStr);
     try {
-        // Iterate through every entry in the directory.
-        for (const auto& entry : fs::directory_iterator(directoryPath)) {
+        constexpr auto options = fs::directory_options::skip_permission_denied;
+        for (const auto& entry : fs::recursive_directory_iterator(directoryPath, options)) {
             if (!running) break; // Permite parar a varredura se o serviço for interrompido
 
 
@@ -459,14 +459,16 @@ void FileWatcher::watcherThreadFunc(std::function<void(const fs::path&)> fileCal
                     continue;
                 }
 
-                // Handle action (added or renamed to this name).
-                if (pNotify->Action == FILE_ACTION_ADDED || pNotify->Action == FILE_ACTION_RENAMED_NEW_NAME)
+                // Handle action (added, modified, or renamed to this name).
+                if (pNotify->Action == FILE_ACTION_ADDED ||
+                    pNotify->Action == FILE_ACTION_MODIFIED ||
+                    pNotify->Action == FILE_ACTION_RENAMED_NEW_NAME)
                 {
                     // Recheck if target is a safe regular file after the event.
                     if (isSafeWatchedRegularFile(directoryPath, fullPath))
                     {
                        
-                        Logger::getInstance().info("FileWatcher::watcherThreadFunc", "Detected new/renamed file: " + filePathStr);
+                        Logger::getInstance().info("FileWatcher::watcherThreadFunc", "Detected new/modified/renamed file: " + filePathStr);
                         try {
                             fileCallback(fullPath);
                         }

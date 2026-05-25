@@ -43,5 +43,9 @@ void runServerConfigTests(TestStats& stats, const TestEnvironment& env) {
         require(config.isClientIdentityAllowed("agent-one"), "configured per-client PSK identity should be allowed");
         require(!config.isClientIdentityAllowed("agent-two"), "unknown per-client PSK identity should be rejected");
         require(config.getSecurityPreSharedKeyForClient("agent-one") != config.getSecurityPreSharedKey(), "client-specific PSK should override global PSK");
+        require(config.getChangedFilesServerPolicy() == ServerConfig::ChangedFilesServerPolicy::Overwrite,
+                "Changed-file server policy should load overwrite from test config");
+        require(config.getChangedFilesServerPolicyName() == "overwrite",
+                "Changed-file server policy name should be overwrite");
     }, stats);
 }

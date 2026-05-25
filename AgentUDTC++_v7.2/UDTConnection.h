@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -136,6 +137,9 @@ public:
      */
     UDTSTATUS getState() const;
 
+    void setSecureSessionKey(std::string key) { secureSessionKey = std::move(key); }
+    const std::string& getSecureSessionKey() const { return secureSessionKey; }
+
 private:
     // UDT socket
     UDTSOCKET sock;
@@ -146,4 +150,5 @@ private:
     // Server information
     std::string serverHost;
     int serverPort;
+    std::string secureSessionKey;
 };

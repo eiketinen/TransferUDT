@@ -214,15 +214,11 @@ bool Parse(const std::vector<char> &buffer, ChunkMetadata &chunk,
   if (!ReadUint32(buffer, offset, totalChunks, errorMessage, "totalChunks")) {
     return false;
   }
-  if (totalChunks == 0) {
-    SetError(errorMessage, "Invalid totalChunks received");
-    return false;
-  }
   if (totalChunks > kMaxTotalChunks) {
     SetError(errorMessage, "totalChunks exceeds maximum allowed count");
     return false;
   }
-  if (chunkNumber >= totalChunks) {
+  if (totalChunks > 0 && chunkNumber >= totalChunks) {
     SetError(errorMessage, "chunkNumber out of range");
     return false;
   }

@@ -81,6 +81,26 @@ void runChunkPacketParserTests(TestStats &stats) {
       stats);
 
   runTest(
+      "ChunkPacketParser accepts nested relative directory",
+      [&]() {
+        std::vector<char> data = {'x'};
+        auto packet = buildPacket("nomedoarquivo.bin", "XXX/XXXX",
+                                  "127.0.0.1", 0, 1, 0, 1, "abc123",
+                                  data);
+
+        ChunkMetadata chunk;
+        std::string error;
+        const bool ok = ChunkPacketParser::Parse(packet, chunk, &error);
+
+        require(ok, "Expected nested relative directory to parse: " + error);
+        require(chunk.getFilename() == "nomedoarquivo.bin",
+                "Filename mismatch");
+        require(chunk.getDirectory() == "XXX/XXXX",
+                "Nested relative directory must be preserved");
+      },
+      stats);
+
+  runTest(
       "ChunkPacketParser rejects oversized chunk payload",
       [&]() {
         std::vector<char> payload;
@@ -147,6 +167,20 @@ void runChunkPacketParserTests(TestStats &stats) {
         require(!ok, "Expected out-of-range chunk number to fail");
         require(error.find("out of range") != std::string::npos,
                 "Unexpected error: " + error);
+      },
+      stats);
+
+  runTest(
+      "ChunkPacketParser accepts unknown total for adaptive non-final chunks",
+      [&]() {
+        const auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 3,
+                                        0, 4096, 10000, "abc123", {'x'});
+        ChunkMetadata chunk;
+        std::string error;
+        const bool ok = ChunkPacketParser::Parse(packet, chunk, &error);
+        require(ok, "Expected unknown adaptive total to parse: " + error);
+        require(chunk.getChunkNumber() == 3, "Chunk number mismatch");
+        require(chunk.getTotalChunk() == 0, "Unknown total should be preserved");
       },
       stats);
 

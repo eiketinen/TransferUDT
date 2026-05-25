@@ -15,6 +15,12 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AdaptiveChunkController.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DashboardHeartbeatClient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="ChunkMetadata.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -63,8 +69,17 @@
     <ClInclude Include="UDTConnectionPool.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="WatchedPathMapper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AdaptiveChunkController.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DashboardHeartbeatClient.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Database.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -108,6 +123,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UDTConnectionPool.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="WatchedPathMapper.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

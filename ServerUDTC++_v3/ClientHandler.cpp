@@ -5,8 +5,10 @@
 #include "ServerConfig.h"
 
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <thread>
 
 /**
  * Constructs a ClientHandler instance to manage a client connection.
@@ -86,49 +88,119 @@ void ClientHandler::handleClient() {
 
   if (ServerConfig::getInstance().isSecurityHandshakeEnabled()) {
     try {
-      const std::string challenge = SecurityHandshake::CreateChallenge();
-      if (!connection.sendString(
-              SecurityHandshake::BuildChallengeMessage(challenge))) {
-        Logger::getInstance().error(
-            "HandleClient",
-            "Failed to send authentication challenge to client");
-        circuitBreaker.reportFailure();
-        return;
-      }
+      if (ServerConfig::getInstance().isSignedIdentityMode()) {
+        const auto serverEphemeral =
+            SecurityHandshake::CreateEphemeralKeyPair();
+        const SecurityHandshake::SignedChallenge challenge{
+            SecurityHandshake::CreateChallenge(),
+            serverEphemeral.publicKeyHex};
+        if (!connection.sendString(
+                SecurityHandshake::BuildSignedChallengeMessage(challenge))) {
+          Logger::getInstance().error(
+              "HandleClient",
+              "Failed to send signed authentication challenge to client");
+          circuitBreaker.reportFailure();
+          return;
+        }
 
-      std::string response;
-      std::string claimedClientIdentity;
-      std::string clientIdentity;
-      if (!connection.recvString(response) ||
-          !SecurityHandshake::TryExtractClientId(response,
-                                                 claimedClientIdentity) ||
-          !ServerConfig::getInstance().isClientIdentityAllowed(
-              claimedClientIdentity)) {
-        Logger::getInstance().warning(
-            "HandleClient",
-            "Authentication handshake rejected client identity '{}' for {}",
-            claimedClientIdentity, client);
-        (void)connection.sendString(SecurityHandshake::kAuthFailed);
-        circuitBreaker.reportFailure();
-        return;
-      }
+        std::string responseMessage;
+        SecurityHandshake::SignedResponse response;
+        if (!connection.recvString(responseMessage) ||
+            !SecurityHandshake::TryParseSignedResponseMessage(
+                responseMessage, response) ||
+            !ServerConfig::getInstance().isClientIdentityAllowed(
+                response.clientId)) {
+          Logger::getInstance().warning(
+              "HandleClient",
+              "Signed authentication rejected client identity '{}' for {}",
+              response.clientId, client);
+          (void)connection.sendString(SecurityHandshake::kAuthFailed);
+          circuitBreaker.reportFailure();
+          return;
+        }
 
-      const std::string clientPreSharedKey =
-          ServerConfig::getInstance().getSecurityPreSharedKeyForClient(
-              claimedClientIdentity);
-      if (!SecurityHandshake::VerifyResponseMessage(
-              challenge, clientPreSharedKey, response, &clientIdentity) ||
-          clientIdentity != claimedClientIdentity) {
-        Logger::getInstance().warning(
+        const std::string clientPublicKeyPath =
+            ServerConfig::getInstance().getClientPublicKeyPath(
+                response.clientId);
+        if (!SecurityHandshake::VerifySignedResponseMessage(
+                challenge, response, clientPublicKeyPath)) {
+          Logger::getInstance().warning(
+              "HandleClient",
+              "Signed authentication failed for client {}", client);
+          (void)connection.sendString(SecurityHandshake::kAuthFailed);
+          circuitBreaker.reportFailure();
+          return;
+        }
+
+        const std::string signedOkMessage =
+            SecurityHandshake::BuildSignedOkMessage(
+                challenge, response,
+                ServerConfig::getInstance().getSecurityServerPrivateKeyPath());
+        const std::string serverSignature = signedOkMessage.substr(
+            std::string(SecurityHandshake::kSignedOkPrefix).size());
+        connectionPreSharedKey =
+            SecurityHandshake::DeriveSignedSessionSecret(
+                serverEphemeral.privateKeyHex,
+                response.clientEphemeralPublicKeyHex, challenge, response,
+                serverSignature);
+        clientNamespace =
+            buildAuthenticatedClientNamespace(clientNoPort, response.clientId);
+        Logger::getInstance().info(
             "HandleClient",
-            "Authentication handshake failed for client {}", client);
-        (void)connection.sendString(SecurityHandshake::kAuthFailed);
-        circuitBreaker.reportFailure();
-        return;
+            "Signed authentication succeeded for client identity '{}'",
+            response.clientId);
+
+        if (!connection.sendString(signedOkMessage)) {
+          Logger::getInstance().error("HandleClient",
+                                      "Failed to send signed server proof");
+          circuitBreaker.reportFailure();
+          return;
+        }
+      } else {
+        const std::string challenge = SecurityHandshake::CreateChallenge();
+        if (!connection.sendString(
+                SecurityHandshake::BuildChallengeMessage(challenge))) {
+          Logger::getInstance().error(
+              "HandleClient",
+              "Failed to send authentication challenge to client");
+          circuitBreaker.reportFailure();
+          return;
+        }
+
+        std::string response;
+        std::string claimedClientIdentity;
+        std::string clientIdentity;
+        if (!connection.recvString(response) ||
+            !SecurityHandshake::TryExtractClientId(response,
+                                                   claimedClientIdentity) ||
+            !ServerConfig::getInstance().isClientIdentityAllowed(
+                claimedClientIdentity)) {
+          Logger::getInstance().warning(
+              "HandleClient",
+              "Authentication handshake rejected client identity '{}' for {}",
+              claimedClientIdentity, client);
+          (void)connection.sendString(SecurityHandshake::kAuthFailed);
+          circuitBreaker.reportFailure();
+          return;
+        }
+
+        const std::string clientPreSharedKey =
+            ServerConfig::getInstance().getSecurityPreSharedKeyForClient(
+                claimedClientIdentity);
+        if (!SecurityHandshake::VerifyResponseMessage(
+                challenge, clientPreSharedKey, response, &clientIdentity) ||
+            clientIdentity != claimedClientIdentity) {
+          Logger::getInstance().warning(
+              "HandleClient",
+              "Authentication handshake failed for client {}", client);
+          (void)connection.sendString(SecurityHandshake::kAuthFailed);
+          circuitBreaker.reportFailure();
+          return;
+        }
+        connectionPreSharedKey = clientPreSharedKey;
+        clientNamespace =
+            buildAuthenticatedClientNamespace(clientNoPort, clientIdentity);
       }
-      connectionPreSharedKey = clientPreSharedKey;
-      clientNamespace =
-          buildAuthenticatedClientNamespace(clientNoPort, clientIdentity);
     } catch (const std::exception &e) {
       Logger::getInstance().error("HandleClient",
                                   "Authentication handshake error for {}: {}",
@@ -251,6 +323,18 @@ void ClientHandler::handleClient() {
           "Chunk processed " + std::to_string(chunk.getChunkNumber()) + " of " +
               std::to_string(chunk.getTotalChunk() - 1) + " for file " +
               chunk.getFilename() + " from client " + client);
+
+      const int simulatedAckDelayMillis =
+          ServerConfig::getInstance().getSimulatedAckDelayMillis(
+              static_cast<size_t>(chunk.getChunkNumber()));
+      if (simulatedAckDelayMillis > 0) {
+        Logger::getInstance().infoC(
+            "HandleClient", chunk.getFilename(),
+            "Applying simulated ACK delay of {} ms for chunk {}.",
+            simulatedAckDelayMillis, chunk.getChunkNumber());
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(simulatedAckDelayMillis));
+      }
 
       if (receiveResult == FileReceiver::ReceiveResult::JustCompleted) {
         Logger::getInstance().infoC("HandleClient", chunk.getFilename(),

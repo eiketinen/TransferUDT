@@ -40,6 +40,20 @@ private:
   ThreadPool &pool_;
 };
 
+class ServerPolicyGuard {
+public:
+  explicit ServerPolicyGuard(ServerConfig::ChangedFilesServerPolicy policy)
+      : previous_(ServerConfig::getInstance().getChangedFilesServerPolicy()) {
+    ServerConfig::getInstance().setChangedFilesServerPolicyForTesting(policy);
+  }
+  ~ServerPolicyGuard() {
+    ServerConfig::getInstance().setChangedFilesServerPolicyForTesting(previous_);
+  }
+
+private:
+  ServerConfig::ChangedFilesServerPolicy previous_;
+};
+
 fs::path normalizePathForFs(const fs::path &inputPath) {
 #ifdef _WIN32
   if (inputPath.empty()) {
@@ -116,6 +130,54 @@ std::string readBinaryFile(const fs::path &filePath) {
   return std::string((std::istreambuf_iterator<char>(input)),
                      std::istreambuf_iterator<char>());
 }
+
+bool waitForFileContent(const fs::path &filePath,
+                        const std::string &expectedContent, int timeoutMs) {
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (readBinaryFile(filePath) == expectedContent) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  return readBinaryFile(filePath) == expectedContent;
+}
+
+fs::path waitForAnyFileContent(const fs::path &root,
+                               const std::string &expectedContent,
+                               int timeoutMs) {
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  while (std::chrono::steady_clock::now() < deadline) {
+    std::error_code ec;
+    if (fs::exists(normalizePathForFs(root), ec)) {
+      for (const auto &entry :
+           fs::recursive_directory_iterator(normalizePathForFs(root), ec)) {
+        if (!ec && entry.is_regular_file(ec) &&
+            readBinaryFile(entry.path()) == expectedContent) {
+          return entry.path();
+        }
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  return {};
+}
+
+bool waitForReconstructedRow(Database &db, const std::string &clientKey,
+                             const std::string &filename, int timeoutMs) {
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (db.isFileReconstructed(clientKey, filename)) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  return db.isFileReconstructed(clientKey, filename);
+}
+
 } // namespace
 
 void runFileReceiverTests(TestStats &stats, Database &db,
@@ -197,6 +259,163 @@ void runFileReceiverTests(TestStats &stats, Database &db,
       stats);
 
   runTest(
+      "FileReceiver replaces managed output when same path receives new content",
+      [&]() {
+        ServerPolicyGuard policyGuard(
+            ServerConfig::ChangedFilesServerPolicy::Overwrite);
+        ThreadPool pool(2);
+        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        FileReceiver receiver(db, std::move(verifier),
+                              ServerConfig::getInstance(), pool);
+        PoolStopGuard guard(pool);
+
+        const std::string clientIp = "127.0.0.1";
+        const std::string directory = "changed_content";
+        const std::string filename = "same_path_changed.bin";
+        const std::string clientKey = clientIp + "/" + directory;
+        const fs::path reconstructedPath =
+            fs::path(ServerConfig::getInstance().getReconstructedPath()) /
+            clientKey / filename;
+
+        const std::string oldPayload = "old-version";
+        std::vector<char> oldData(oldPayload.begin(), oldPayload.end());
+        ChunkMetadata oldChunk =
+            buildChunk(clientIp, directory, filename, 0, 1, "expected-hash");
+        oldChunk.setChunkOffset(0);
+        oldChunk.setTotalFileSize(oldPayload.size());
+
+        require(receiver.receiveChunk(oldChunk, oldData) ==
+                    FileReceiver::ReceiveResult::JustCompleted,
+                "Initial single-chunk file should complete.");
+        require(waitForFileContent(reconstructedPath, oldPayload, 5000),
+                "Initial reconstructed file content should match.");
+        require(waitForReconstructedRow(db, clientKey, filename, 5000),
+                "Initial reconstructed file should be persisted in DB.");
+
+        const std::string newPayload = "new-version-content";
+        std::vector<char> newData(newPayload.begin(), newPayload.end());
+        ChunkMetadata newChunk =
+            buildChunk(clientIp, directory, filename, 0, 1, "expected-hash");
+        newChunk.setChunkOffset(0);
+        newChunk.setTotalFileSize(newPayload.size());
+
+        require(receiver.receiveChunk(newChunk, newData) ==
+                    FileReceiver::ReceiveResult::JustCompleted,
+                "New first chunk for the same managed path should replace output.");
+        require(waitForFileContent(reconstructedPath, newPayload, 5000),
+                "Reconstructed output should contain the changed content.");
+        require(waitForReconstructedRow(db, clientKey, filename, 5000),
+                "Replacement reconstructed file should be persisted in DB.");
+      },
+      stats);
+
+  runTest(
+      "FileReceiver rejects changed same-path content when configured",
+      [&]() {
+        ServerPolicyGuard policyGuard(
+            ServerConfig::ChangedFilesServerPolicy::Reject);
+        ThreadPool pool(2);
+        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        FileReceiver receiver(db, std::move(verifier),
+                              ServerConfig::getInstance(), pool);
+        PoolStopGuard guard(pool);
+
+        const std::string clientIp = "127.0.0.1";
+        const std::string directory = "changed_content_reject";
+        const std::string filename = "same_path_reject.bin";
+        const std::string clientKey = clientIp + "/" + directory;
+        const fs::path reconstructedPath =
+            fs::path(ServerConfig::getInstance().getReconstructedPath()) /
+            clientKey / filename;
+
+        const std::string oldPayload = "old-version-reject";
+        std::vector<char> oldData(oldPayload.begin(), oldPayload.end());
+        ChunkMetadata oldChunk =
+            buildChunk(clientIp, directory, filename, 0, 1, "expected-hash");
+        oldChunk.setChunkOffset(0);
+        oldChunk.setTotalFileSize(oldPayload.size());
+
+        require(receiver.receiveChunk(oldChunk, oldData) ==
+                    FileReceiver::ReceiveResult::JustCompleted,
+                "Initial file should complete before reject policy is tested.");
+        require(waitForFileContent(reconstructedPath, oldPayload, 5000),
+                "Initial rejected-policy fixture should be reconstructed.");
+        require(waitForReconstructedRow(db, clientKey, filename, 5000),
+                "Initial rejected-policy fixture should be in DB.");
+
+        const std::string newPayload = "new-version-rejected";
+        std::vector<char> newData(newPayload.begin(), newPayload.end());
+        ChunkMetadata newChunk =
+            buildChunk(clientIp, directory, filename, 0, 1, "expected-hash");
+        newChunk.setChunkOffset(0);
+        newChunk.setTotalFileSize(newPayload.size());
+
+        require(receiver.receiveChunk(newChunk, newData) ==
+                    FileReceiver::ReceiveResult::AlreadyCompleted,
+                "Reject policy should not accept changed same-path content.");
+        require(readBinaryFile(reconstructedPath) == oldPayload,
+                "Reject policy must preserve the original managed output.");
+      },
+      stats);
+
+  runTest(
+      "FileReceiver versions changed same-path content when configured",
+      [&]() {
+        ServerPolicyGuard policyGuard(
+            ServerConfig::ChangedFilesServerPolicy::Versioned);
+        ThreadPool pool(2);
+        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        FileReceiver receiver(db, std::move(verifier),
+                              ServerConfig::getInstance(), pool);
+        PoolStopGuard guard(pool);
+
+        const std::string clientIp = "127.0.0.1";
+        const std::string directory = "changed_content_versioned";
+        const std::string filename = "same_path_versioned.bin";
+        const std::string clientKey = clientIp + "/" + directory;
+        const fs::path reconstructedPath =
+            fs::path(ServerConfig::getInstance().getReconstructedPath()) /
+            clientKey / filename;
+        const fs::path reconstructedFolder = reconstructedPath.parent_path();
+
+        const std::string oldPayload = "old-version-versioned";
+        std::vector<char> oldData(oldPayload.begin(), oldPayload.end());
+        ChunkMetadata oldChunk =
+            buildChunk(clientIp, directory, filename, 0, 1, "expected-hash");
+        oldChunk.setChunkOffset(0);
+        oldChunk.setTotalFileSize(oldPayload.size());
+
+        require(receiver.receiveChunk(oldChunk, oldData) ==
+                    FileReceiver::ReceiveResult::JustCompleted,
+                "Initial file should complete before versioning is tested.");
+        require(waitForFileContent(reconstructedPath, oldPayload, 5000),
+                "Initial versioning fixture should be reconstructed.");
+        require(waitForReconstructedRow(db, clientKey, filename, 5000),
+                "Initial versioning fixture should be persisted in DB.");
+
+        const std::string newPayload = "new-version-kept-as-version";
+        std::vector<char> newData(newPayload.begin(), newPayload.end());
+        ChunkMetadata newChunk =
+            buildChunk(clientIp, directory, filename, 0, 1, "expected-hash");
+        newChunk.setChunkOffset(0);
+        newChunk.setTotalFileSize(newPayload.size());
+
+        require(receiver.receiveChunk(newChunk, newData) ==
+                    FileReceiver::ReceiveResult::JustCompleted,
+                "Versioned policy should accept changed same-path content.");
+        const fs::path versionedPath =
+            waitForAnyFileContent(reconstructedFolder, newPayload, 5000);
+        require(!versionedPath.empty(),
+                "Versioned policy should create a second output file.");
+        require(normalizePathForFs(versionedPath) !=
+                    normalizePathForFs(reconstructedPath),
+                "Versioned output must not overwrite the original path.");
+        require(readBinaryFile(reconstructedPath) == oldPayload,
+                "Versioned policy must preserve the original managed output.");
+      },
+      stats);
+
+  runTest(
       "FileReceiver ignores duplicate successful chunk without completing early",
       [&]() {
         ThreadPool pool(2);
@@ -244,6 +463,90 @@ void runFileReceiverTests(TestStats &stats, Database &db,
                 "Reconstructed file should exist after the final chunk");
         require(readBinaryFile(reconstructedPath) == "abcdef",
                 "Reconstructed file content should include each chunk once");
+      },
+      stats);
+
+  runTest(
+      "FileReceiver reconstructs adaptive chunks when final declares total",
+      [&]() {
+        ThreadPool pool(2);
+        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        FileReceiver receiver(db, std::move(verifier),
+                              ServerConfig::getInstance(), pool);
+        PoolStopGuard guard(pool);
+
+        const std::string clientIp = "127.0.0.1";
+        const std::string directory = "adaptive_chunks";
+        const std::string filename = "adaptive_chunk_file.bin";
+        const std::string clientKey = clientIp + "/" + directory;
+        const std::string payload = "abcdefghi";
+
+        const std::vector<char> firstChunk{'a', 'b', 'c'};
+        const std::vector<char> secondChunk{'d', 'e', 'f', 'g'};
+        const std::vector<char> finalChunk{'h', 'i'};
+
+        ChunkMetadata chunk0 =
+            buildChunk(clientIp, directory, filename, 0, 0, "expected-hash");
+        chunk0.setChunkOffset(0);
+        chunk0.setTotalFileSize(payload.size());
+
+        ChunkMetadata chunk1 =
+            buildChunk(clientIp, directory, filename, 1, 0, "expected-hash");
+        chunk1.setChunkOffset(3);
+        chunk1.setTotalFileSize(payload.size());
+
+        ChunkMetadata chunk2 =
+            buildChunk(clientIp, directory, filename, 2, 3, "expected-hash");
+        chunk2.setChunkOffset(7);
+        chunk2.setTotalFileSize(payload.size());
+
+        require(receiver.receiveChunk(chunk0, firstChunk) ==
+                    FileReceiver::ReceiveResult::Stored,
+                "Adaptive non-final chunk should be stored");
+        require(receiver.receiveChunk(chunk1, secondChunk) ==
+                    FileReceiver::ReceiveResult::Stored,
+                "Second adaptive non-final chunk should be stored");
+        require(receiver.receiveChunk(chunk2, finalChunk) ==
+                    FileReceiver::ReceiveResult::JustCompleted,
+                "Final adaptive chunk should complete the file");
+
+        const fs::path reconstructedPath =
+            fs::path(ServerConfig::getInstance().getReconstructedPath()) /
+            clientKey / filename;
+        require(waitForFileContent(reconstructedPath, payload, 5000),
+                "Reconstructed adaptive file content should match payload");
+      },
+      stats);
+
+  runTest(
+      "FileReceiver reconstructs nested relative destination tree",
+      [&]() {
+        ThreadPool pool(2);
+        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        FileReceiver receiver(db, std::move(verifier),
+                              ServerConfig::getInstance(), pool);
+        PoolStopGuard guard(pool);
+
+        const std::string clientIp = "127.0.0.1";
+        const std::string directory = "XXX/XXXX";
+        const std::string filename = "nomedoarquivo.bin";
+        const std::string payload = "nested tree payload";
+        const std::vector<char> data(payload.begin(), payload.end());
+
+        ChunkMetadata chunk =
+            buildChunk(clientIp, directory, filename, 0, 1, "expected-hash");
+        chunk.setChunkOffset(0);
+        chunk.setTotalFileSize(payload.size());
+
+        require(receiver.receiveChunk(chunk, data) ==
+                    FileReceiver::ReceiveResult::JustCompleted,
+                "Single nested relative chunk should complete the file");
+
+        const fs::path reconstructedPath =
+            fs::path(ServerConfig::getInstance().getReconstructedPath()) /
+            clientIp / directory / filename;
+        require(waitForFileContent(reconstructedPath, payload, 5000),
+                "Reconstructed file should preserve nested directory tree");
       },
       stats);
 

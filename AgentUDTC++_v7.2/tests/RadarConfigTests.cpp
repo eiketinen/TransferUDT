@@ -24,6 +24,8 @@ void runRadarConfigTests(TestStats &stats, const TestEnvironment &env) {
           cfg << "data.dirs =   \n";
           cfg << "udt.require.greeting = maybe\n";
           cfg << "udt.keepalive.enabled = definitely\n";
+          cfg << "resend.changed_files.enabled = true\n";
+          cfg << "resend.changed_files.identity = SHA256\n";
           cfg << "security.psk = 0123456789abcdef0123456789abcdef-test-key\n";
           cfg << "server.targets = "
                  "invalid_target_without_port;localhost:70000\n";
@@ -44,6 +46,16 @@ void runRadarConfigTests(TestStats &stats, const TestEnvironment &env) {
                 "Default send timeout must be 20 seconds.");
         require(cfg.getReceiveTimeout() == 20 * 1000,
                 "Default receive timeout must be 20 seconds.");
+        require(!cfg.isAdaptiveChunkEnabled(),
+                "Adaptive chunk telemetry should be disabled by default.");
+        require(cfg.getAdaptiveChunkMinBytes() == 32ULL * 1024ULL,
+                "Adaptive minimum chunk size must default to 32 KB.");
+        require(cfg.getAdaptiveChunkMaxBytes() == 4ULL * 1024ULL * 1024ULL,
+                "Adaptive maximum chunk size must default to 4 MB.");
+        require(cfg.getAdaptiveChunkInitialBytes() == 256ULL * 1024ULL,
+                "Adaptive initial chunk size must default to 256 KB.");
+        require(cfg.getAdaptiveChunkTargetAckMillis() == 700,
+                "Adaptive target ACK must default to 700 ms.");
 
         require(cfg.isUDTGreetingRequired(),
                 "Invalid bool must fallback to default true for "
@@ -51,6 +63,10 @@ void runRadarConfigTests(TestStats &stats, const TestEnvironment &env) {
         require(!cfg.isUDTKeepAliveEnabled(),
                 "Invalid bool must fallback to default false for "
                 "udt.keepalive.enabled.");
+        require(cfg.isChangedFilesResendEnabled(),
+                "Changed-file resend should be enabled from config.");
+        require(cfg.getChangedFilesIdentity() == "sha256",
+                "Changed-file identity should normalize to sha256.");
 
         const auto &endpoints = cfg.getServerEndpoints();
         require(endpoints.size() == 1,

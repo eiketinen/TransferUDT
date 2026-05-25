@@ -6,6 +6,24 @@ std::unique_ptr<Database> Database::instance = nullptr;
 std::once_flag Database::initFlag;
 thread_local bool Database::m_isTransactionActive = false;
 
+namespace {
+void ignoreDuplicateColumn(sqlite3 *db, const std::string &sql,
+                           const std::string &columnName) {
+  char *errMsg = nullptr;
+  if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errMsg) != SQLITE_OK) {
+    const std::string error = errMsg ? errMsg : "Unknown error";
+    if (error.find("duplicate column name") == std::string::npos) {
+      Logger::getInstance().error(
+          "Database::Database",
+          "Failed to add processed_files." + columnName + " column: " + error);
+    }
+    if (errMsg) {
+      sqlite3_free(errMsg);
+    }
+  }
+}
+} // namespace
+
 /**
  * @brief TransactionGuard constructor: begins a transaction
  * @param conn Shared pointer to the SQLite connection
@@ -168,6 +186,13 @@ void SQLiteStatement::bindInt(int index, int value) {
                             std::to_string(index));
   }
 }
+
+void SQLiteStatement::bindInt64(int index, int64_t value) {
+  if (sqlite3_bind_int64(m_stmt, index, value) != SQLITE_OK) {
+    throw DatabaseException("Failed to bind int64 parameter at index " +
+                            std::to_string(index));
+  }
+}
 /**
  * @brief Executes the prepared statement
  * @return true if a row is returned, false if no more rows are available
@@ -210,6 +235,10 @@ std::wstring SQLiteStatement::getText16(int column) const {
  */
 int SQLiteStatement::getInt(int column) const {
   return sqlite3_column_int(m_stmt, column);
+}
+
+int64_t SQLiteStatement::getInt64(int column) const {
+  return sqlite3_column_int64(m_stmt, column);
 }
 
 /**
@@ -283,6 +312,23 @@ Database::Database(const std::string dbPath) : m_dbPath(dbPath) {
     SQLiteStatement stmt(conn->get(), sql);
     stmt.step();
 
+    char *alterErrMsg = nullptr;
+    if (sqlite3_exec(conn->get(),
+                     "ALTER TABLE chunks ADD COLUMN chunk_offset INTEGER "
+                     "DEFAULT 0;",
+                     nullptr, nullptr, &alterErrMsg) != SQLITE_OK) {
+      const std::string alterError =
+          alterErrMsg ? alterErrMsg : "Unknown error";
+      if (alterError.find("duplicate column name") == std::string::npos) {
+        Logger::getInstance().error(
+            "Database::Database",
+            "Failed to add chunks.chunk_offset column: " + alterError);
+      }
+      if (alterErrMsg) {
+        sqlite3_free(alterErrMsg);
+      }
+    }
+
     SQLiteStatement stmtDropOldIndex(
         conn->get(), "DROP INDEX IF EXISTS idx_chunks_file_chunk;");
     stmtDropOldIndex.step();
@@ -310,6 +356,20 @@ Database::Database(const std::string dbPath) : m_dbPath(dbPath) {
 
     SQLiteStatement stmtProcessedFiles(conn->get(), sqlProcessedFiles);
     stmtProcessedFiles.step();
+
+    ignoreDuplicateColumn(
+        conn->get(),
+        "ALTER TABLE processed_files ADD COLUMN file_size INTEGER DEFAULT 0;",
+        "file_size");
+    ignoreDuplicateColumn(
+        conn->get(),
+        "ALTER TABLE processed_files ADD COLUMN last_write_time_ns INTEGER "
+        "DEFAULT 0;",
+        "last_write_time_ns");
+    ignoreDuplicateColumn(
+        conn->get(),
+        "ALTER TABLE processed_files ADD COLUMN content_hash TEXT DEFAULT '';",
+        "content_hash");
 
     // Also create an index to speed up lookups.
     std::string sqlProcessedFilesIndex = R"(
@@ -500,7 +560,8 @@ std::shared_ptr<SQLiteConnection> Database::getConnection() {
  */
 void Database::insertChunk(const fs::path &filename, int chunkNumber,
                            int totalChunk, int filesize, int chunksize,
-                           const std::string &hash, const fs::path &filePath) {
+                           const std::string &hash, const fs::path &filePath,
+                           uint64_t chunkOffset) {
   auto conn = getConnection();
   std::unique_ptr<TransactionGuard> local_tx;
   if (!m_isTransactionActive) {
@@ -509,7 +570,8 @@ void Database::insertChunk(const fs::path &filename, int chunkNumber,
 
   std::string sql =
       "INSERT INTO chunks (filename, chunk_number, total_chunk, hash, "
-      "file_path, file_size, chunk_size) VALUES (?, ?, ?, ?, ?, ?, ?);";
+      "file_path, file_size, chunk_size, chunk_offset) VALUES (?, ?, ?, ?, ?, "
+      "?, ?, ?);";
 
   try {
     SQLiteStatement stmt(conn->get(), sql);
@@ -520,6 +582,7 @@ void Database::insertChunk(const fs::path &filename, int chunkNumber,
     stmt.bindText16(5, filePath.wstring());
     stmt.bindInt(6, filesize);
     stmt.bindInt(7, chunksize);
+    stmt.bindInt64(8, static_cast<int64_t>(chunkOffset));
     stmt.step();
     if (local_tx) {
       local_tx->commit();
@@ -550,7 +613,7 @@ void Database::insertChunk(const fs::path &filename, int chunkNumber,
 void Database::insertChunk(const fs::path &filename, int chunkNumber,
                            int totalChunk, int filesize, int chunksize,
                            const std::string &hash, const fs::path &filePath,
-                           const std::string &status) {
+                           const std::string &status, uint64_t chunkOffset) {
   auto conn = getConnection();
   std::unique_ptr<TransactionGuard> local_tx;
   if (!m_isTransactionActive) {
@@ -558,8 +621,8 @@ void Database::insertChunk(const fs::path &filename, int chunkNumber,
   }
 
   std::string sql = "INSERT INTO chunks (filename, chunk_number, total_chunk, "
-                    "hash, file_path, file_size, chunk_size, status) VALUES "
-                    "(?, ?, ?, ?, ?, ?, ?, ?);";
+                    "hash, file_path, file_size, chunk_size, status, "
+                    "chunk_offset) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
 
   try {
     SQLiteStatement stmt(conn->get(), sql);
@@ -571,6 +634,7 @@ void Database::insertChunk(const fs::path &filename, int chunkNumber,
     stmt.bindInt(6, filesize);
     stmt.bindInt(7, chunksize);
     stmt.bindText(8, status);
+    stmt.bindInt64(9, static_cast<int64_t>(chunkOffset));
     stmt.step();
     if (local_tx) {
       local_tx->commit();
@@ -599,7 +663,7 @@ std::vector<ChunkMetadata> Database::getPendingChunks(int beforeAbandoned) {
   std::vector<ChunkMetadata> chunks;
   auto conn = getConnection();
   std::string sql = "SELECT filename, chunk_number, total_chunk, chunk_size, "
-                    "hash, file_path, retries FROM chunks WHERE status in "
+                    "hash, file_path, retries, chunk_offset FROM chunks WHERE status in "
                     "('pending', 'failed') AND retries < ?;";
 
   try {
@@ -609,6 +673,7 @@ std::vector<ChunkMetadata> Database::getPendingChunks(int beforeAbandoned) {
       chunks.emplace_back(stmt.getText16(0), stmt.getInt(1), stmt.getInt(2),
                           stmt.getInt(3), stmt.getText(4), stmt.getText16(5),
                           stmt.getInt(6));
+      chunks.back().setChunkOffset(static_cast<uint64_t>(stmt.getInt64(7)));
     }
   } catch (const std::exception &e) {
     logError("Failed to get pending chunks: " + std::string(e.what()));
@@ -803,6 +868,77 @@ bool Database::isFileFullyProcessed(const fs::path &filename_path) {
   }
   return false;
 }
+
+bool Database::markFileAsProcessingIfChanged(const fs::path &filePath,
+                                             int64_t fileSize,
+                                             int64_t lastWriteTime,
+                                             const std::string &contentHash) {
+  auto conn = getConnection();
+  std::unique_ptr<TransactionGuard> local_tx;
+  if (!m_isTransactionActive) {
+    local_tx = std::make_unique<TransactionGuard>(conn);
+  }
+
+  try {
+    std::string sql_select =
+        "SELECT status, file_size, last_write_time_ns, content_hash "
+        "FROM processed_files WHERE file_path = ? LIMIT 1;";
+    SQLiteStatement stmt_select(conn->get(), sql_select);
+    stmt_select.bindText16(1, filePath.wstring());
+
+    if (stmt_select.step()) {
+      const std::string status = stmt_select.getText(0);
+      const int64_t storedSize = stmt_select.getInt64(1);
+      const int64_t storedLastWrite = stmt_select.getInt64(2);
+      const std::string storedHash = stmt_select.getText(3);
+      const bool sameFingerprint = storedSize == fileSize &&
+                                   storedLastWrite == lastWriteTime &&
+                                   storedHash == contentHash;
+      if ((status == "processed" || status == "processing") &&
+          sameFingerprint) {
+        if (local_tx) {
+          local_tx->commit();
+        }
+        return false;
+      }
+    }
+
+    std::string sql_insert =
+        "INSERT OR IGNORE INTO processed_files "
+        "(filename, file_path, status, file_size, last_write_time_ns, "
+        "content_hash) VALUES (?, ?, 'processing', ?, ?, ?);";
+    SQLiteStatement stmt_insert(conn->get(), sql_insert);
+    stmt_insert.bindText16(1, filePath.filename().wstring());
+    stmt_insert.bindText16(2, filePath.wstring());
+    stmt_insert.bindInt64(3, fileSize);
+    stmt_insert.bindInt64(4, lastWriteTime);
+    stmt_insert.bindText(5, contentHash);
+    stmt_insert.step();
+
+    std::string sql_update =
+        "UPDATE processed_files SET status = 'processing', file_size = ?, "
+        "last_write_time_ns = ?, content_hash = ? WHERE file_path = ?;";
+    SQLiteStatement stmt_update(conn->get(), sql_update);
+    stmt_update.bindInt64(1, fileSize);
+    stmt_update.bindInt64(2, lastWriteTime);
+    stmt_update.bindText(3, contentHash);
+    stmt_update.bindText16(4, filePath.wstring());
+    stmt_update.step();
+
+    if (local_tx) {
+      local_tx->commit();
+    }
+    return true;
+  } catch (const std::exception &e) {
+    if (local_tx) {
+      local_tx->rollback();
+    }
+    logError("Failed to mark changed file as processing for " +
+             filePath.u8string() + ": " + std::string(e.what()));
+    throw;
+  }
+}
+
 /**
  * Checks if a file is currently being processed in the database.
  *
@@ -880,7 +1016,10 @@ void Database::markChunksAsAbandoned(int maxTotalRetries) {
  * @param filesize Size of the file
  * @param filePath Path to the file
  */
-void Database::addProcessedFileAndCleanupChunks(const fs::path &filePath) {
+void Database::addProcessedFileAndCleanupChunks(const fs::path &filePath,
+                                                int64_t fileSize,
+                                                int64_t lastWriteTime,
+                                                const std::string &contentHash) {
   auto conn = getConnection();
   std::unique_ptr<TransactionGuard> local_tx;
   if (!m_isTransactionActive) {
@@ -888,21 +1027,41 @@ void Database::addProcessedFileAndCleanupChunks(const fs::path &filePath) {
   }
 
   try {
+    const bool hasFingerprint =
+        fileSize >= 0 && lastWriteTime >= 0 && !contentHash.empty();
+
     // 1. Ensure a processed_files row exists for this file.
-    std::string sql_insert = "INSERT OR IGNORE INTO processed_files (filename, "
-                             "file_path, status) VALUES (?, ?, 'processed');";
+    std::string sql_insert =
+        "INSERT OR IGNORE INTO processed_files "
+        "(filename, file_path, status, file_size, last_write_time_ns, "
+        "content_hash) VALUES (?, ?, 'processed', ?, ?, ?);";
     SQLiteStatement stmt_insert(conn->get(), sql_insert);
     stmt_insert.bindText16(1, filePath.filename().wstring());
     stmt_insert.bindText16(2, filePath.wstring());
+    stmt_insert.bindInt64(3, hasFingerprint ? fileSize : 0);
+    stmt_insert.bindInt64(4, hasFingerprint ? lastWriteTime : 0);
+    stmt_insert.bindText(5, hasFingerprint ? contentHash : "");
     stmt_insert.step();
 
     // 2. Update status to processed if the row already existed with another
     // status.
-    std::string sql_update =
-        "UPDATE processed_files SET status = 'processed' WHERE file_path = ?;";
-    SQLiteStatement stmt_update(conn->get(), sql_update);
-    stmt_update.bindText16(1, filePath.wstring());
-    stmt_update.step();
+    if (hasFingerprint) {
+      std::string sql_update =
+          "UPDATE processed_files SET status = 'processed', file_size = ?, "
+          "last_write_time_ns = ?, content_hash = ? WHERE file_path = ?;";
+      SQLiteStatement stmt_update(conn->get(), sql_update);
+      stmt_update.bindInt64(1, fileSize);
+      stmt_update.bindInt64(2, lastWriteTime);
+      stmt_update.bindText(3, contentHash);
+      stmt_update.bindText16(4, filePath.wstring());
+      stmt_update.step();
+    } else {
+      std::string sql_update =
+          "UPDATE processed_files SET status = 'processed' WHERE file_path = ?;";
+      SQLiteStatement stmt_update(conn->get(), sql_update);
+      stmt_update.bindText16(1, filePath.wstring());
+      stmt_update.step();
+    }
 
     // 3. Remove all chunks associated with this file from chunks table.
     std::string sql_delete = "DELETE FROM chunks WHERE file_path = ?;";

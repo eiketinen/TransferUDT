@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -55,12 +56,13 @@ public:
   /// Inserts chunk metadata with default status behavior.
   void insertChunk(const fs::path &filename, int chunkNumber, int totalChunk,
                    int filesize, int chunksize, const std::string &hash,
-                   const fs::path &filePath);
+                   const fs::path &filePath, uint64_t chunkOffset = 0);
 
   /// Inserts chunk metadata with an explicit status value.
   void insertChunk(const fs::path &filename, int chunkNumber, int totalChunk,
                    int filesize, int chunksize, const std::string &hash,
-                   const fs::path &filePath, const std::string &status);
+                   const fs::path &filePath, const std::string &status,
+                   uint64_t chunkOffset = 0);
 
   /// Returns pending chunks that match the abandonment age threshold.
   std::vector<ChunkMetadata> getPendingChunks(int beforeAbandoned);
@@ -79,6 +81,12 @@ public:
   /// Returns true when all chunks for the file are marked as success.
   bool isFileFullyProcessed(const fs::path &filename);
 
+  /// Marks the file as processing only when its persisted fingerprint changed.
+  bool markFileAsProcessingIfChanged(const fs::path &filePath,
+                                     int64_t fileSize,
+                                     int64_t lastWriteTime,
+                                     const std::string &contentHash);
+
   /// Returns true when the file is currently marked as processing.
   bool isFileProcessing(const fs::path &filename);
 
@@ -92,7 +100,10 @@ public:
   void markChunksAsAbandoned(int maxTotalRetries);
 
   /// Marks file as processed and removes related chunk rows.
-  void addProcessedFileAndCleanupChunks(const fs::path &filePath);
+  void addProcessedFileAndCleanupChunks(const fs::path &filePath,
+                                        int64_t fileSize = -1,
+                                        int64_t lastWriteTime = -1,
+                                        const std::string &contentHash = "");
 
   /// Persists a permanent file failure and the associated reason.
   void logPermanentlyFailedFile(const fs::path &filePath,
@@ -160,6 +171,7 @@ public:
 
   /// Binds integer value using a 1-based parameter index.
   void bindInt(int index, int value);
+  void bindInt64(int index, int64_t value);
   /// Executes one step and returns true when a row is available.
   bool step();
   /// Reads UTF-8 text from a result column.
@@ -169,6 +181,7 @@ public:
   std::wstring getText16(int column) const;
   /// Reads integer value from a result column.
   int getInt(int column) const;
+  int64_t getInt64(int column) const;
 
   SQLiteStatement(const SQLiteStatement &) = delete;
   SQLiteStatement &operator=(const SQLiteStatement &) = delete;

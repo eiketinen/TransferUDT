@@ -29,6 +29,21 @@ static bool isPlaceholderPsk(const std::string& value) {
     return value == "replace-with-a-strong-shared-secret-of-32-plus-chars";
 }
 
+static bool isValidIdentityMode(const std::string& value) {
+    return value == "psk" || value == "signed_handshake";
+}
+
+static std::string normalizeLower(std::string value) {
+    std::transform(
+        value.begin(), value.end(), value.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+static bool isValidChangedFilesIdentity(const std::string& value) {
+    return normalizeLower(value) == "sha256";
+}
+
 // Parses a semicolon-separated host:port list and keeps only valid endpoints.
 std::vector<RadarConfig::ServerEndpoint> RadarConfig::parseServerTargets(const std::string& targets) {
     std::vector<ServerEndpoint> endpoints;
@@ -117,6 +132,56 @@ RadarConfig::RadarConfig() {
     }
 
     chunkSize = static_cast<DWORDLONG>(chunkSizeIn) * 1024;
+
+    adaptiveChunkEnabled = RadarConfig::loadConfigParam<bool>(
+        configMap, "chunk.adaptive.enabled", DEFAULT_ADAPTIVE_CHUNK_ENABLED,
+        "Adaptive chunk enabled must be true or false",
+        [](bool) { return true; }
+    );
+
+    auto adaptiveMinKb = RadarConfig::loadConfigParam<int64_t>(
+        configMap, "chunk.adaptive.min_kb", DEFAULT_ADAPTIVE_CHUNK_MIN_KB,
+        "Adaptive minimum chunk size must be positive",
+        [](int64_t value) { return value > 0; }
+    );
+    auto adaptiveMaxKb = RadarConfig::loadConfigParam<int64_t>(
+        configMap, "chunk.adaptive.max_kb", DEFAULT_ADAPTIVE_CHUNK_MAX_KB,
+        "Adaptive maximum chunk size must be positive",
+        [](int64_t value) { return value > 0; }
+    );
+    auto adaptiveInitialKb = RadarConfig::loadConfigParam<int64_t>(
+        configMap, "chunk.adaptive.initial_kb", DEFAULT_ADAPTIVE_CHUNK_INITIAL_KB,
+        "Adaptive initial chunk size must be positive",
+        [](int64_t value) { return value > 0; }
+    );
+
+    if (adaptiveMaxKb > MAX_CHUNK_SIZE_KB) {
+        std::cerr << "RadarConfig: chunk.adaptive.max_kb=" << adaptiveMaxKb
+                  << " KB exceeds the max supported value (" << MAX_CHUNK_SIZE_KB
+                  << " KB). Capping to 4 MB." << std::endl;
+        adaptiveMaxKb = MAX_CHUNK_SIZE_KB;
+    }
+
+    if (adaptiveMinKb > adaptiveMaxKb) {
+        std::cerr << "RadarConfig: chunk.adaptive.min_kb exceeds max_kb. Using max_kb as minimum." << std::endl;
+        adaptiveMinKb = adaptiveMaxKb;
+    }
+
+    if (adaptiveInitialKb < adaptiveMinKb) {
+        adaptiveInitialKb = adaptiveMinKb;
+    }
+    if (adaptiveInitialKb > adaptiveMaxKb) {
+        adaptiveInitialKb = adaptiveMaxKb;
+    }
+
+    adaptiveChunkMinBytes = adaptiveMinKb * 1024;
+    adaptiveChunkMaxBytes = adaptiveMaxKb * 1024;
+    adaptiveChunkInitialBytes = adaptiveInitialKb * 1024;
+    adaptiveChunkTargetAckMillis = RadarConfig::loadConfigParam<int>(
+        configMap, "chunk.adaptive.target_ack_ms", DEFAULT_ADAPTIVE_CHUNK_TARGET_ACK_MS,
+        "Adaptive target ACK time must be positive",
+        [](int value) { return value > 0; }
+    );
 
     std::string dirs_str = RadarConfig::loadConfigParam<std::string>(
         configMap, "data.dirs", DEFAULT_DATA_DIRS,
@@ -351,6 +416,66 @@ RadarConfig::RadarConfig() {
         }
     );
 
+    securityIdentityMode = RadarConfig::loadConfigParam<std::string>(
+        configMap, "security.identity.mode", DEFAULT_SECURITY_IDENTITY_MODE,
+        "Security identity mode invalid",
+        [](const std::string& value) { return isValidIdentityMode(value); }
+    );
+
+    securityClientPrivateKeyPath = RadarConfig::loadConfigParam<std::string>(
+        configMap, "security.client_private_key_path", "",
+        "Security client private key path invalid",
+        [](const std::string&) { return true; }
+    );
+
+    securityServerPublicKeyPath = RadarConfig::loadConfigParam<std::string>(
+        configMap, "security.server_public_key_path", "",
+        "Security server public key path invalid",
+        [](const std::string&) { return true; }
+    );
+
+    dashboardEnabled = RadarConfig::loadConfigParam<bool>(
+        configMap, "dashboard.enabled", DEFAULT_DASHBOARD_ENABLED,
+        "Dashboard enabled must be true or false",
+        [](bool) { return true; }
+    );
+
+    dashboardUrl = RadarConfig::loadConfigParam<std::string>(
+        configMap, "dashboard.url", "",
+        "Dashboard URL invalid",
+        [](const std::string& value) {
+            return value.empty() || value.rfind("https://", 0) == 0;
+        }
+    );
+
+    dashboardHeartbeatIntervalSeconds = RadarConfig::loadConfigParam<int>(
+        configMap, "dashboard.heartbeat.interval.seconds",
+        DEFAULT_DASHBOARD_HEARTBEAT_INTERVAL_SECONDS,
+        "Dashboard heartbeat interval must be positive",
+        [](int value) { return value > 0; }
+    );
+
+    dashboardLogTailLines = RadarConfig::loadConfigParam<int>(
+        configMap, "dashboard.log_tail.lines", DEFAULT_DASHBOARD_LOG_TAIL_LINES,
+        "Dashboard log tail lines must be non-negative",
+        [](int value) { return value >= 0 && value <= 5000; }
+    );
+
+    changedFilesResendEnabled = RadarConfig::loadConfigParam<bool>(
+        configMap, "resend.changed_files.enabled",
+        DEFAULT_CHANGED_FILES_RESEND_ENABLED,
+        "Changed-file resend enabled must be true or false",
+        [](bool) { return true; }
+    );
+
+    changedFilesIdentity = RadarConfig::loadConfigParam<std::string>(
+        configMap, "resend.changed_files.identity",
+        DEFAULT_CHANGED_FILES_IDENTITY,
+        "Changed-file identity must be sha256",
+        [](const std::string& value) { return isValidChangedFilesIdentity(value); }
+    );
+    changedFilesIdentity = normalizeLower(changedFilesIdentity);
+
     const std::string envPsk = getEnvValue("AGENT_SECURITY_PSK");
     if (!envPsk.empty()) {
         securityPreSharedKey = envPsk;
@@ -366,7 +491,30 @@ RadarConfig::RadarConfig() {
             "security.enabled and security.handshake.enabled must both be true unless security.allow_insecure=true is explicitly configured.");
     }
 
-    if ((securityEnabled || securityHandshakeEnabled) &&
+    if (securityIdentityMode == "signed_handshake") {
+        if (!securityEnabled || !securityHandshakeEnabled) {
+            throw std::runtime_error(
+                "signed_handshake requires security.enabled=true and security.handshake.enabled=true.");
+        }
+        if (securityClientPrivateKeyPath.empty() || securityServerPublicKeyPath.empty()) {
+            throw std::runtime_error(
+                "signed_handshake requires security.client_private_key_path and security.server_public_key_path.");
+        }
+    }
+
+    if (dashboardEnabled) {
+        if (dashboardUrl.empty() || dashboardUrl.rfind("https://", 0) != 0) {
+            throw std::runtime_error(
+                "dashboard.enabled=true requires dashboard.url to start with https://.");
+        }
+        if (securityClientPrivateKeyPath.empty()) {
+            throw std::runtime_error(
+                "dashboard.enabled=true requires security.client_private_key_path for signed heartbeats.");
+        }
+    }
+
+    if (securityIdentityMode == "psk" &&
+        (securityEnabled || securityHandshakeEnabled) &&
         (securityPreSharedKey.size() < 32 || isPlaceholderPsk(securityPreSharedKey))) {
         throw std::runtime_error(
             "security.psk must contain a non-placeholder secret with at least 32 characters when security is enabled.");

@@ -70,6 +70,16 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <OutDir>$(ProjectDir)bin\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(LocalAppData)\AgentUDTCppMain\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <LibraryPath>$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>$(ProjectDir)bin\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(LocalAppData)\AgentUDTCppMain\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <LibraryPath>$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <OutDir>$(ProjectDir)bin\$(Configuration)\</OutDir>
     <IntDir>$(LocalAppData)\AgentUDTCppMain\obj\$(Configuration)\$(ProjectName)\</IntDir>
@@ -95,6 +105,12 @@
     <VcpkgApplocalDeps>false</VcpkgApplocalDeps>
     <VcpkgXUseBuiltInApplocalDeps>false</VcpkgXUseBuiltInApplocalDeps>
   </PropertyGroup>
+  <PropertyGroup Label="Vcpkg" Condition="'$(Platform)'=='Win32'">
+    <VcpkgTriplet>x86-windows-static</VcpkgTriplet>
+  </PropertyGroup>
+  <PropertyGroup Label="Vcpkg" Condition="'$(Platform)'=='x64'">
+    <VcpkgTriplet>x64-windows-static</VcpkgTriplet>
+  </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <VcpkgUseStatic>true</VcpkgUseStatic>
   </PropertyGroup>
@@ -108,7 +124,7 @@
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);UDT_EXPORTS;UDT_EXPORTS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <AdditionalIncludeDirectories>..\TransferCore;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
@@ -116,7 +132,21 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(IntDir)$(ProjectName).pdb</ProgramDatabaseFile>
+      <AdditionalDependencies>fmtd.lib;spdlogd.lib;ws2_32.lib;Crypt32.lib;Iphlpapi.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>REM Copia DLLs apenas quando existirem (triplet estatico normalmente nao gera DLLs)
+if exist "$(TargetDir)*.dll" (
+  xcopy "$(TargetDir)*.dll" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+) else (
+  echo Post-Build: nenhum .dll para copiar de "$(TargetDir)".
+)
+
+REM Copia o arquivo de configuracao da pasta do projeto para a pasta de saida
+xcopy "$(ProjectDir)config.properties" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+
+echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platform)\$(Configuration)\</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -137,7 +167,21 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(IntDir)$(ProjectName).pdb</ProgramDatabaseFile>
+      <AdditionalDependencies>fmt.lib;spdlog.lib;ws2_32.lib;Crypt32.lib;Iphlpapi.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>REM Copia DLLs apenas quando existirem (triplet estatico normalmente nao gera DLLs)
+if exist "$(TargetDir)*.dll" (
+  xcopy "$(TargetDir)*.dll" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+) else (
+  echo Post-Build: nenhum .dll para copiar de "$(TargetDir)".
+)
+
+REM Copia o arquivo de configuracao da pasta do projeto para a pasta de saida
+xcopy "$(ProjectDir)config.properties" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+
+echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platform)\$(Configuration)\</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -154,7 +198,7 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(IntDir)$(ProjectName).pdb</ProgramDatabaseFile>
-      <AdditionalDependencies>fmtd.lib;spdlogd.lib;ws2_32.lib;Crypt32.lib;Iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>fmtd.lib;spdlogd.lib;ws2_32.lib;Crypt32.lib;Iphlpapi.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>REM Copia DLLs apenas quando existirem (triplet estatico normalmente nao gera DLLs)
@@ -189,7 +233,7 @@ echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platf
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(IntDir)$(ProjectName).pdb</ProgramDatabaseFile>
-      <AdditionalDependencies>fmt.lib;spdlog.lib;ws2_32.lib;Crypt32.lib;Iphlpapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>fmt.lib;spdlog.lib;ws2_32.lib;Crypt32.lib;Iphlpapi.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>REM Copia DLLs apenas quando existirem (triplet estatico normalmente nao gera DLLs)
@@ -206,6 +250,8 @@ echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platf
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="AdaptiveChunkController.h" />
+    <ClInclude Include="DashboardHeartbeatClient.h" />
     <ClInclude Include="Database.h" />
     <ClInclude Include="FileProcessor.h" />
     <ClInclude Include="FileStabilityChecker.h" />
@@ -216,8 +262,11 @@ echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platf
     <ClInclude Include="RadarConfig.h" />
     <ClInclude Include="UDTConnection.h" />
     <ClInclude Include="UDTConnectionPool.h" />
+    <ClInclude Include="WatchedPathMapper.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AdaptiveChunkController.cpp" />
+    <ClCompile Include="DashboardHeartbeatClient.cpp" />
     <ClCompile Include="Database.cpp" />
     <ClCompile Include="FileProcessor.cpp" />
     <ClCompile Include="FileStabilityChecker.cpp" />
@@ -229,6 +278,7 @@ echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platf
     <ClCompile Include="RadarConfig.cpp" />
     <ClCompile Include="UDTConnection.cpp" />
     <ClCompile Include="UDTConnectionPool.cpp" />
+    <ClCompile Include="WatchedPathMapper.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\..\..\AgentRadar\config\config-prd.properties" />

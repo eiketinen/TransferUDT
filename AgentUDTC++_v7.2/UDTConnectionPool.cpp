@@ -1,5 +1,6 @@
 ﻿#include "UDTConnectionPool.h"
 #include "SecurityHandshake.h"
+#include <stdexcept>
 #include <string>
 
 namespace {
@@ -127,7 +128,10 @@ UDTConnectionPool::UDTConnectionPool(
     const std::string& keepAlivePayload,
     bool securityHandshakeEnabled,
     const std::string& securityPreSharedKey,
-    const std::string& securityClientId)
+    const std::string& securityClientId,
+    const std::string& securityIdentityMode,
+    const std::string& securityClientPrivateKeyPath,
+    const std::string& securityServerPublicKeyPath)
     : serverHost_(host),
     serverPort_(port),
     maxBandwidth_(maxBandwidth),
@@ -148,7 +152,10 @@ UDTConnectionPool::UDTConnectionPool(
     keepAlivePayload_(keepAlivePayload),
     securityHandshakeEnabled_(securityHandshakeEnabled),
     securityPreSharedKey_(securityPreSharedKey),
-    securityClientId_(securityClientId)
+    securityClientId_(securityClientId),
+    securityIdentityMode_(securityIdentityMode),
+    securityClientPrivateKeyPath_(securityClientPrivateKeyPath),
+    securityServerPublicKeyPath_(securityServerPublicKeyPath)
 {
     if (max_size_ == 0) max_size_ = 1; // Ensure at least 1 connection
     Logger::getInstance().info("UDTConnectionPool::UDTConnectionPool", "Pool initialized with max size: " + std::to_string(max_size_));
@@ -218,6 +225,95 @@ std::shared_ptr<UDTConnection> UDTConnectionPool::_createConnection() {
                 return nullptr;
             }
             if (securityHandshakeEnabled_) {
+                if (securityIdentityMode_ == "signed_handshake") {
+                    SecurityHandshake::SignedChallenge challenge;
+                    if (!SecurityHandshake::TryParseSignedChallengeMessage(
+                            response, challenge)) {
+                        Logger::getInstance().warning("UDTConnectionPool::_createConnection",
+                            "Expected signed authentication challenge but received '" + response + "'.");
+                        connection->close();
+                        circuitBreaker_.reportFailure();
+                        return nullptr;
+                    }
+
+                    try {
+                        const auto clientEphemeral =
+                            SecurityHandshake::CreateEphemeralKeyPair();
+                        const std::string clientNonce =
+                            SecurityHandshake::CreateChallenge();
+                        const std::string signedResponse =
+                            SecurityHandshake::BuildSignedResponseMessage(
+                                challenge, securityClientId_, clientNonce,
+                                clientEphemeral.publicKeyHex,
+                                securityClientPrivateKeyPath_);
+                        SecurityHandshake::SignedResponse parsedResponse;
+                        if (!SecurityHandshake::TryParseSignedResponseMessage(
+                                signedResponse, parsedResponse)) {
+                            throw std::runtime_error(
+                                "Built signed response could not be parsed.");
+                        }
+                        if (!connection->sendString(signedResponse)) {
+                            Logger::getInstance().warning("UDTConnectionPool::_createConnection",
+                                "Failed to send signed authentication response.");
+                            connection->close();
+                            circuitBreaker_.reportFailure();
+                            return nullptr;
+                        }
+
+                        if (!connection->recvString(response)) {
+                            Logger::getInstance().warning("UDTConnectionPool::_createConnection",
+                                "Signed server proof not received after authentication.");
+                            connection->close();
+                            circuitBreaker_.reportFailure();
+                            return nullptr;
+                        }
+
+                        if (response == SecurityHandshake::kAuthFailed) {
+                            Logger::getInstance().warning("UDTConnectionPool::_createConnection",
+                                "Server rejected signed authentication response.");
+                            connection->close();
+                            circuitBreaker_.reportFailure();
+                            return nullptr;
+                        }
+
+                        std::string serverSignature;
+                        if (!SecurityHandshake::VerifySignedOkMessage(
+                                challenge, parsedResponse, response,
+                                securityServerPublicKeyPath_,
+                                &serverSignature)) {
+                            Logger::getInstance().warning("UDTConnectionPool::_createConnection",
+                                "Signed server proof verification failed.");
+                            connection->close();
+                            circuitBreaker_.reportFailure();
+                            return nullptr;
+                        }
+
+                        connection->setSecureSessionKey(
+                            SecurityHandshake::DeriveSignedSessionSecret(
+                                clientEphemeral.privateKeyHex,
+                                challenge.serverEphemeralPublicKeyHex,
+                                challenge, parsedResponse, serverSignature));
+                        Logger::getInstance().info("UDTConnectionPool::_createConnection",
+                            "Signed authentication succeeded for client identity '" +
+                            securityClientId_ + "'.");
+                    }
+                    catch (const std::exception& ex) {
+                        Logger::getInstance().warning("UDTConnectionPool::_createConnection",
+                            "Signed authentication failed: " +
+                            std::string(ex.what()));
+                        connection->close();
+                        circuitBreaker_.reportFailure();
+                        return nullptr;
+                    }
+
+                    if (!connection->recvString(response)) {
+                        Logger::getInstance().warning("UDTConnectionPool::_createConnection",
+                            "READY greeting not received after signed authentication.");
+                        connection->close();
+                        circuitBreaker_.reportFailure();
+                        return nullptr;
+                    }
+                } else {
                 std::string challenge;
                 if (!SecurityHandshake::TryParseChallengeMessage(response, challenge)) {
                     Logger::getInstance().warning("UDTConnectionPool::_createConnection",
@@ -260,6 +356,7 @@ std::shared_ptr<UDTConnection> UDTConnectionPool::_createConnection() {
                     connection->close();
                     circuitBreaker_.reportFailure();
                     return nullptr;
+                }
                 }
             }
             if (!expectedGreeting_.empty() && response != expectedGreeting_) {

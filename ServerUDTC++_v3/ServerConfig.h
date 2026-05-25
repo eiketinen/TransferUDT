@@ -29,6 +29,12 @@ namespace fs = std::filesystem;
  */
 class ServerConfig {
 public:
+  enum class ChangedFilesServerPolicy {
+    Overwrite,
+    Reject,
+    Versioned
+  };
+
   // Deleção de construtores e operadores de cópia/movimento
   ServerConfig(const ServerConfig &) = delete;
   ServerConfig &operator=(const ServerConfig &) = delete;
@@ -88,6 +94,13 @@ public:
   int getLingerTime() const { return lingerTime; }
   /// @brief Returns the configured log flush level.
   std::string getLogFlushLevel() const { return logFlushLevel; }
+  int getSimulatedAckDelayMillis(size_t chunkNumber) const {
+    if (simulatedAckDelayPatternMillis.empty() ||
+        chunkNumber >= simulatedAckDelayPatternMillis.size()) {
+      return 0;
+    }
+    return simulatedAckDelayPatternMillis[chunkNumber];
+  }
   /// @brief Returns whether encrypted/authenticated packet transfer is enabled.
   bool isSecurityEnabled() const { return securityEnabled; }
   /// @brief Returns whether PSK challenge-response handshake is enabled.
@@ -101,7 +114,11 @@ public:
            allowedClients.end();
   }
   bool isClientIdentityAllowed(const std::string &clientId) const {
-    if (!clientPreSharedKeys.empty() &&
+    if (isSignedIdentityMode() &&
+        clientPublicKeyPaths.find(clientId) == clientPublicKeyPaths.end()) {
+      return false;
+    }
+    if (!isSignedIdentityMode() && !clientPreSharedKeys.empty() &&
         clientPreSharedKeys.find(clientId) == clientPreSharedKeys.end()) {
       return false;
     }
@@ -124,6 +141,29 @@ public:
     return securityPreSharedKey;
   }
   bool hasClientPreSharedKeys() const { return !clientPreSharedKeys.empty(); }
+  const std::string &getSecurityIdentityMode() const {
+    return securityIdentityMode;
+  }
+  bool isSignedIdentityMode() const {
+    return securityIdentityMode == "signed_handshake";
+  }
+  const std::string &getSecurityServerPrivateKeyPath() const {
+    return securityServerPrivateKeyPath;
+  }
+  std::string getClientPublicKeyPath(const std::string &clientId) const {
+    const auto it = clientPublicKeyPaths.find(clientId);
+    if (it == clientPublicKeyPaths.end()) {
+      return "";
+    }
+    return it->second;
+  }
+  ChangedFilesServerPolicy getChangedFilesServerPolicy() const {
+    return changedFilesServerPolicy;
+  }
+  std::string getChangedFilesServerPolicyName() const;
+  void setChangedFilesServerPolicyForTesting(ChangedFilesServerPolicy policy) {
+    changedFilesServerPolicy = policy;
+  }
   /**
    * @brief Returns a string representation of key configuration settings.
    * @return Summary string of current configuration.
@@ -176,6 +216,8 @@ private:
   const bool DEFAULT_SECURITY_HANDSHAKE_ENABLED = true;
   const bool DEFAULT_ALLOW_INSECURE_MODE = false;
   const std::string DEFAULT_SECURITY_PSK = "";
+  const std::string DEFAULT_SECURITY_IDENTITY_MODE = "psk";
+  const std::string DEFAULT_CHANGED_FILES_SERVER_POLICY = "overwrite";
 
   // Variáveis de configuração
   int sendTimeout;
@@ -206,9 +248,14 @@ private:
   bool securityHandshakeEnabled;
   bool allowInsecureMode;
   std::string securityPreSharedKey;
+  std::string securityIdentityMode;
+  std::string securityServerPrivateKeyPath;
   std::map<std::string, std::string> clientPreSharedKeys;
+  std::map<std::string, std::string> clientPublicKeyPaths;
   std::vector<std::string> allowedClients;
   std::vector<std::string> allowedClientIds;
+  std::vector<int> simulatedAckDelayPatternMillis;
+  ChangedFilesServerPolicy changedFilesServerPolicy;
 
   // Funções utilitárias estáticas
 

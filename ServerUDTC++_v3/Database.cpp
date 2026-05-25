@@ -624,8 +624,8 @@ void Database::updateChunkStatus(const std::string &client,
 int Database::getTotalChunkCount(const std::string &client,
                                  const std::string &filename) {
   auto conn = getConnection();
-  std::string sql = "SELECT total_chunk FROM chunks WHERE filename = ? AND "
-                    "client_address = ? LIMIT 1;";
+  std::string sql = "SELECT COALESCE(MAX(total_chunk), 0) FROM chunks WHERE "
+                    "filename = ? AND client_address = ?;";
   try {
     SQLiteStatement stmt(conn->get(), sql);
     stmt.bindText(1, filename);
@@ -662,6 +662,26 @@ int Database::getChunkStatus(const std::string &client,
     logError("Failed to get expected pending chunk count: " +
              std::string(e.what()));
     throw DatabaseException("Failed to get expected pending chunk count: " +
+                            std::string(e.what()));
+  }
+  return 0;
+}
+
+int Database::getChunkRowCount(const std::string &client,
+                               const std::string &filename) {
+  auto conn = getConnection();
+  std::string sql = "SELECT COUNT(*) FROM chunks WHERE filename = ? AND "
+                    "client_address = ?;";
+  try {
+    SQLiteStatement stmt(conn->get(), sql);
+    stmt.bindText(1, filename);
+    stmt.bindText(2, client);
+    if (stmt.step()) {
+      return stmt.getInt(0);
+    }
+  } catch (const std::exception &e) {
+    logError("Failed to get chunk row count: " + std::string(e.what()));
+    throw DatabaseException("Failed to get chunk row count: " +
                             std::string(e.what()));
   }
   return 0;
@@ -774,6 +794,34 @@ void Database::addReconstructedFile(const std::string &clientAddress,
   }
 }
 
+void Database::deleteReconstructedFile(const std::string &clientAddress,
+                                       const std::string &filename) {
+  auto conn = getConnection();
+  std::unique_ptr<TransactionGuard> local_tx;
+  if (!m_isTransactionActive) {
+    local_tx = std::make_unique<TransactionGuard>(conn);
+  }
+  const std::string sql =
+      "DELETE FROM reconstructed_files WHERE client_address = ? AND "
+      "filename = ?;";
+
+  try {
+    SQLiteStatement stmt(conn->get(), sql);
+    stmt.bindText(1, clientAddress);
+    stmt.bindText(2, filename);
+    stmt.step();
+    if (local_tx) {
+      local_tx->commit();
+    };
+  } catch (const std::exception &e) {
+    rollbackNoThrow(local_tx, "deleteReconstructedFile");
+    logError("Falha ao deletar arquivo reconstruído: " +
+             std::string(e.what()));
+    throw DatabaseException("Falha ao deletar arquivo reconstruído: " +
+                            std::string(e.what()));
+  }
+}
+
 void Database::deleteChunksByFile(const std::string &clientAddress,
                                   const std::string &filename) {
   auto conn = getConnection();
@@ -850,7 +898,7 @@ Database::getInProgressFileCounters() {
   std::string sql = R"(
     SELECT c.client_address,
            c.filename,
-           c.total_chunk,
+           COALESCE(MAX(c.total_chunk), 0) AS total_chunk,
            COUNT(CASE WHEN c.status = 'success' THEN 1 END) AS successful_count
     FROM chunks c
     LEFT JOIN reconstructed_files rf

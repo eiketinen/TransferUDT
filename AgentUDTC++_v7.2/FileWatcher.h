@@ -68,8 +68,11 @@ private:
     std::vector<BYTE> buffer;
     /// Default notification buffer size (64 KB).
     static const DWORD BUFFER_SIZE = 64 * 1024;
-    /// Filters create/rename events for files and directories.
-    DWORD notifyFilter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME;
+    /// Filters create/rename/modify events for files and directories.
+    DWORD notifyFilter = FILE_NOTIFY_CHANGE_FILE_NAME |
+                          FILE_NOTIFY_CHANGE_DIR_NAME |
+                          FILE_NOTIFY_CHANGE_LAST_WRITE |
+                          FILE_NOTIFY_CHANGE_SIZE;
 
     /// Worker thread routine.
     void watcherThreadFunc(std::function<void(const fs::path&)> fileCallback);

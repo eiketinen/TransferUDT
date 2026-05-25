@@ -48,6 +48,15 @@ public:
   std::vector<std::string> getDataDirs() const { return dataDirs; }
   /// @brief Returns the configured chunk size.
   DWORDLONG getChunkSize() const { return chunkSize; }
+  bool isAdaptiveChunkEnabled() const { return adaptiveChunkEnabled; }
+  DWORDLONG getAdaptiveChunkMinBytes() const { return adaptiveChunkMinBytes; }
+  DWORDLONG getAdaptiveChunkMaxBytes() const { return adaptiveChunkMaxBytes; }
+  DWORDLONG getAdaptiveChunkInitialBytes() const {
+    return adaptiveChunkInitialBytes;
+  }
+  int getAdaptiveChunkTargetAckMillis() const {
+    return adaptiveChunkTargetAckMillis;
+  }
   /// @brief Returns the configured maximum retries.
   int getMaxRetries() const { return maxRetries; }
   /// @brief Returns the configured maximum bandwidth.
@@ -142,6 +151,30 @@ public:
     return securityPreSharedKey;
   }
   const std::string &getSecurityClientId() const { return securityClientId; }
+  const std::string &getSecurityIdentityMode() const {
+    return securityIdentityMode;
+  }
+  bool isSignedIdentityMode() const {
+    return securityIdentityMode == "signed_handshake";
+  }
+  const std::string &getSecurityClientPrivateKeyPath() const {
+    return securityClientPrivateKeyPath;
+  }
+  const std::string &getSecurityServerPublicKeyPath() const {
+    return securityServerPublicKeyPath;
+  }
+  bool isDashboardEnabled() const { return dashboardEnabled; }
+  const std::string &getDashboardUrl() const { return dashboardUrl; }
+  int getDashboardHeartbeatIntervalSeconds() const {
+    return dashboardHeartbeatIntervalSeconds;
+  }
+  int getDashboardLogTailLines() const { return dashboardLogTailLines; }
+  bool isChangedFilesResendEnabled() const {
+    return changedFilesResendEnabled;
+  }
+  const std::string &getChangedFilesIdentity() const {
+    return changedFilesIdentity;
+  }
 
 private:
   /// Private constructor.
@@ -191,11 +224,27 @@ private:
   const bool DEFAULT_SECURITY_HANDSHAKE_ENABLED = true;
   const bool DEFAULT_ALLOW_INSECURE_MODE = false;
   const std::string DEFAULT_SECURITY_PSK = "";
+  const std::string DEFAULT_SECURITY_IDENTITY_MODE = "psk";
+  const bool DEFAULT_ADAPTIVE_CHUNK_ENABLED = false;
+  const int64_t DEFAULT_ADAPTIVE_CHUNK_MIN_KB = 32;
+  const int64_t DEFAULT_ADAPTIVE_CHUNK_MAX_KB = 4 * 1024;
+  const int64_t DEFAULT_ADAPTIVE_CHUNK_INITIAL_KB = 256;
+  const int DEFAULT_ADAPTIVE_CHUNK_TARGET_ACK_MS = 700;
+  const bool DEFAULT_DASHBOARD_ENABLED = false;
+  const int DEFAULT_DASHBOARD_HEARTBEAT_INTERVAL_SECONDS = 15;
+  const int DEFAULT_DASHBOARD_LOG_TAIL_LINES = 200;
+  const bool DEFAULT_CHANGED_FILES_RESEND_ENABLED = true;
+  const std::string DEFAULT_CHANGED_FILES_IDENTITY = "sha256";
 
   // Runtime configuration values
   std::vector<ServerEndpoint> serverEndpoints;
   std::vector<std::string> dataDirs;
   int64_t chunkSize;
+  bool adaptiveChunkEnabled;
+  int64_t adaptiveChunkMinBytes;
+  int64_t adaptiveChunkMaxBytes;
+  int64_t adaptiveChunkInitialBytes;
+  int adaptiveChunkTargetAckMillis;
   int maxRetries;
   int64_t maxBandwidth;
   int segmentSize;
@@ -232,6 +281,15 @@ private:
   bool allowInsecureMode;
   std::string securityPreSharedKey;
   std::string securityClientId;
+  std::string securityIdentityMode;
+  std::string securityClientPrivateKeyPath;
+  std::string securityServerPublicKeyPath;
+  bool dashboardEnabled;
+  std::string dashboardUrl;
+  int dashboardHeartbeatIntervalSeconds;
+  int dashboardLogTailLines;
+  bool changedFilesResendEnabled;
+  std::string changedFilesIdentity;
 
   // Static utility helpers
 

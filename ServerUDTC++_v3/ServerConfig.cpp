@@ -34,6 +34,35 @@ static bool isValidClientPskId(const std::string& value) {
            value.find_first_of(" \t\r\n") == std::string::npos;
 }
 
+static bool isValidIdentityMode(const std::string& value) {
+    return value == "psk" || value == "signed_handshake";
+}
+
+static std::string normalizeLower(std::string value) {
+    std::transform(
+        value.begin(), value.end(), value.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+static bool isValidChangedFilesServerPolicy(const std::string& value) {
+    const std::string normalized = normalizeLower(value);
+    return normalized == "overwrite" || normalized == "reject" ||
+           normalized == "versioned";
+}
+
+static ServerConfig::ChangedFilesServerPolicy
+parseChangedFilesServerPolicy(const std::string& value) {
+    const std::string normalized = normalizeLower(value);
+    if (normalized == "reject") {
+        return ServerConfig::ChangedFilesServerPolicy::Reject;
+    }
+    if (normalized == "versioned") {
+        return ServerConfig::ChangedFilesServerPolicy::Versioned;
+    }
+    return ServerConfig::ChangedFilesServerPolicy::Overwrite;
+}
+
 static uint64_t megabytesToBytes(int64_t megabytes, const char* key) {
     constexpr uint64_t kBytesPerMegabyte = 1024ULL * 1024ULL;
     if (megabytes <= 0) {
@@ -46,6 +75,33 @@ static uint64_t megabytesToBytes(int64_t megabytes, const char* key) {
         throw std::runtime_error(std::string(key) + " is too large.");
     }
     return static_cast<uint64_t>(megabytes) * kBytesPerMegabyte;
+}
+
+static std::vector<int> parseNonNegativeIntList(const std::string& raw,
+                                                const char* key) {
+    std::vector<int> values;
+    std::stringstream stream(raw);
+    std::string item;
+    while (std::getline(stream, item, ',')) {
+        const auto start = item.find_first_not_of(" \t\r\n");
+        const auto end = item.find_last_not_of(" \t\r\n");
+        item = (start == std::string::npos) ? "" : item.substr(start, end - start + 1);
+        if (item.empty()) {
+            continue;
+        }
+        try {
+            const long value = std::stol(item);
+            if (value < 0 || value > (std::numeric_limits<int>::max)()) {
+                throw std::out_of_range(key);
+            }
+            values.push_back(static_cast<int>(value));
+        } catch (const std::exception&) {
+            throw std::runtime_error(std::string(key) +
+                                     " must contain comma-separated "
+                                     "non-negative integer milliseconds.");
+        }
+    }
+    return values;
 }
 
 ServerConfig::ServerConfig() {
@@ -229,6 +285,26 @@ ServerConfig::ServerConfig() {
         "Invalid flush level string", [](const std::string& s) { return !s.empty(); }
     );
 
+    const std::string ackDelayPatternRaw =
+        ServerConfig::loadConfigParam<std::string>(
+            configMap, "test.ack_delay_pattern_ms", "",
+            "Invalid ACK delay pattern",
+            [](const std::string&) { return true; });
+    simulatedAckDelayPatternMillis =
+        parseNonNegativeIntList(ackDelayPatternRaw,
+                                "test.ack_delay_pattern_ms");
+
+    const std::string changedFilesServerPolicyRaw =
+        ServerConfig::loadConfigParam<std::string>(
+            configMap, "resend.changed_files.server_policy",
+            DEFAULT_CHANGED_FILES_SERVER_POLICY,
+            "Changed-file server policy must be overwrite, reject, or versioned",
+            [](const std::string& value) {
+                return isValidChangedFilesServerPolicy(value);
+            });
+    changedFilesServerPolicy =
+        parseChangedFilesServerPolicy(changedFilesServerPolicyRaw);
+
     securityEnabled = ServerConfig::loadConfigParam<bool>(
         configMap, "security.enabled", DEFAULT_SECURITY_ENABLED,
         "Security enabled must be true or false",
@@ -263,18 +339,37 @@ ServerConfig::ServerConfig() {
         }
     }
 
+    securityIdentityMode = ServerConfig::loadConfigParam<std::string>(
+        configMap, "security.identity.mode", DEFAULT_SECURITY_IDENTITY_MODE,
+        "Security identity mode invalid",
+        [](const std::string& value) { return isValidIdentityMode(value); }
+    );
+
+    securityServerPrivateKeyPath = ServerConfig::loadConfigParam<std::string>(
+        configMap, "security.server_private_key_path", "",
+        "Security server private key path invalid",
+        [](const std::string&) { return true; }
+    );
+
     static constexpr const char* CLIENT_PSK_PREFIX = "security.client_psk.";
+    static constexpr const char* CLIENT_PUBLIC_KEY_PREFIX = "security.client_public_key.";
     for (const auto& entry : configMap) {
         const std::string& key = entry.first;
-        if (key.rfind(CLIENT_PSK_PREFIX, 0) != 0) {
-            continue;
+        if (key.rfind(CLIENT_PSK_PREFIX, 0) == 0) {
+            const std::string clientId = key.substr(std::strlen(CLIENT_PSK_PREFIX));
+            if (!isValidClientPskId(clientId)) {
+                throw std::runtime_error(
+                    "security.client_psk entries must use a non-empty client id without whitespace.");
+            }
+            clientPreSharedKeys[clientId] = entry.second;
+        } else if (key.rfind(CLIENT_PUBLIC_KEY_PREFIX, 0) == 0) {
+            const std::string clientId = key.substr(std::strlen(CLIENT_PUBLIC_KEY_PREFIX));
+            if (!isValidClientPskId(clientId)) {
+                throw std::runtime_error(
+                    "security.client_public_key entries must use a non-empty client id without whitespace.");
+            }
+            clientPublicKeyPaths[clientId] = entry.second;
         }
-        const std::string clientId = key.substr(std::strlen(CLIENT_PSK_PREFIX));
-        if (!isValidClientPskId(clientId)) {
-            throw std::runtime_error(
-                "security.client_psk entries must use a non-empty client id without whitespace.");
-        }
-        clientPreSharedKeys[clientId] = entry.second;
     }
 
     const std::string allowedClientsRaw = ServerConfig::loadConfigParam<std::string>(
@@ -303,16 +398,29 @@ ServerConfig::ServerConfig() {
         }
     }
 
+    if (securityIdentityMode == "signed_handshake") {
+        if (!securityEnabled || !securityHandshakeEnabled) {
+            throw std::runtime_error(
+                "signed_handshake requires security.enabled=true and security.handshake.enabled=true.");
+        }
+        if (securityServerPrivateKeyPath.empty() || clientPublicKeyPaths.empty()) {
+            throw std::runtime_error(
+                "signed_handshake requires security.server_private_key_path and at least one security.client_public_key.<client_id>.");
+        }
+    }
+
     const bool hasGlobalPsk =
         securityPreSharedKey.size() >= 32 && !isPlaceholderPsk(securityPreSharedKey);
 
-    if ((securityEnabled || securityHandshakeEnabled) &&
+    if (securityIdentityMode == "psk" &&
+        (securityEnabled || securityHandshakeEnabled) &&
         !hasGlobalPsk && clientPreSharedKeys.empty()) {
         throw std::runtime_error(
             "security.psk or at least one security.client_psk.<client_id> must contain a non-placeholder secret with at least 32 characters when security is enabled.");
     }
 
-    if (securityEnabled && !securityHandshakeEnabled && !hasGlobalPsk) {
+    if (securityIdentityMode == "psk" &&
+        securityEnabled && !securityHandshakeEnabled && !hasGlobalPsk) {
         throw std::runtime_error(
             "security.psk is required when packet encryption is enabled without the authentication handshake.");
     }
@@ -324,5 +432,17 @@ ServerConfig::~ServerConfig() {
 ServerConfig& ServerConfig::getInstance() {
     static ServerConfig instance;
     return instance;
+}
+
+std::string ServerConfig::getChangedFilesServerPolicyName() const {
+    switch (changedFilesServerPolicy) {
+    case ChangedFilesServerPolicy::Reject:
+        return "reject";
+    case ChangedFilesServerPolicy::Versioned:
+        return "versioned";
+    case ChangedFilesServerPolicy::Overwrite:
+    default:
+        return "overwrite";
+    }
 }
 

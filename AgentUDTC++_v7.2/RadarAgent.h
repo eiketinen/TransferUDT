@@ -8,6 +8,7 @@
 #include "NetworkManager.h"
 #include "ThreadPool.h"
 #include "Database.h"
+#include "DashboardHeartbeatClient.h"
 #include "Interfaces.h"
 #include "Logger.h"
 #include "RadarConfig.h"
@@ -50,6 +51,7 @@ private:
     std::vector<std::unique_ptr<FileWatcher>> fileWatchers;
     std::unique_ptr<FileProcessor> fileProcessor;
     std::unique_ptr<NetworkManager> networkManager;
+    std::unique_ptr<DashboardHeartbeatClient> dashboardHeartbeatClient;
     std::unique_ptr<ThreadPool> threadPool;
     std::mutex shutdownMutex;
     std::condition_variable shutdownCv;

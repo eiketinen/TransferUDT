@@ -1,5 +1,8 @@
 ﻿#include "NetworkManager.h"
+#include "RadarConfig.h"
+#include "WatchedPathMapper.h"
 #include <cmath>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <limits>
@@ -14,6 +17,26 @@ namespace {
 constexpr const char *RESPONSE_SUCCESS = "SUCCESS";
 constexpr const char *RESPONSE_SUCCESS_FILE_COMPLETE = "SUCCESS_FILE_COMPLETE";
 constexpr const char *RESPONSE_FILE_ALREADY_EXISTS = "FILE_ALREADY_EXISTS";
+
+std::string endpointKey(const NetworkManager::Endpoint &endpoint) {
+  return endpoint.host + ":" + std::to_string(endpoint.port);
+}
+
+std::string directoryForChunk(const ChunkMetadata &chunk) {
+  const std::string declaredDirectory = chunk.getDirectory();
+  if (!declaredDirectory.empty()) {
+    return declaredDirectory;
+  }
+
+  std::string relativeDirectory;
+  if (WatchedPathMapper::TryBuildRelativeDirectory(
+          chunk.getFilePath(), RadarConfig::getInstance().getDataDirs(),
+          relativeDirectory)) {
+    return relativeDirectory;
+  }
+
+  return chunk.getFilePath().parent_path().filename().u8string();
+}
 
 uint32_t maxSecureControlContentLength() {
   return SecurePacket::kMagicSize + (sizeof(uint32_t) * 4U) +
@@ -43,6 +66,12 @@ bool waitInterruptible(const std::atomic<bool> &isRunning,
 
   return isRunning.load();
 }
+
+std::string secureKeyForConnection(PooledUDTConnection &connection,
+                                   const std::string &fallbackKey) {
+  const std::string &sessionKey = connection->getSecureSessionKey();
+  return sessionKey.empty() ? fallbackKey : sessionKey;
+}
 } // namespace
 /**
  * Constructs a NetworkManager object, initializing the network settings and
@@ -71,7 +100,12 @@ NetworkManager::NetworkManager(
     std::string expectedGreeting, int greetingTimeoutMs, bool keepAliveEnabled,
     int keepAliveIntervalSeconds, std::string keepAlivePayload,
     bool securityEnabled, std::string securityPreSharedKey,
-    bool securityHandshakeEnabled, std::string securityClientId)
+    bool securityHandshakeEnabled, std::string securityClientId,
+    std::string securityIdentityMode, std::string securityClientPrivateKeyPath,
+    std::string securityServerPublicKeyPath,
+    bool adaptiveChunkEnabled, uint64_t adaptiveChunkMinBytes,
+    uint64_t adaptiveChunkMaxBytes, uint64_t adaptiveChunkInitialBytes,
+    int adaptiveChunkTargetAckMillis)
     : database(db), maxRetries(maxRetries),
       circuitBreakerThreshold(circuitBreakerThreshold),
       resetTimeoutSeconds(resetTimeoutSeconds), maxBandwidth(maxBandwidth),
@@ -87,7 +121,13 @@ NetworkManager::NetworkManager(
       securityEnabled(securityEnabled),
       securityPreSharedKey(std::move(securityPreSharedKey)),
       securityHandshakeEnabled(securityHandshakeEnabled),
-      securityClientId(std::move(securityClientId)) {
+      securityClientId(std::move(securityClientId)),
+      securityIdentityMode(std::move(securityIdentityMode)),
+      securityClientPrivateKeyPath(std::move(securityClientPrivateKeyPath)),
+      securityServerPublicKeyPath(std::move(securityServerPublicKeyPath)),
+      adaptiveChunkSettings{adaptiveChunkEnabled, adaptiveChunkMinBytes,
+                            adaptiveChunkMaxBytes, adaptiveChunkInitialBytes,
+                            adaptiveChunkTargetAckMillis} {
   if (endpoints.empty()) {
     throw std::invalid_argument(
         "NetworkManager requires at least one endpoint.");
@@ -95,8 +135,7 @@ NetworkManager::NetworkManager(
 
   targets.reserve(endpoints.size());
   for (const auto &endpoint : endpoints) {
-    auto circuitBreakerName =
-        endpoint.host + ":" + std::to_string(endpoint.port);
+    auto circuitBreakerName = endpointKey(endpoint);
     auto circuitBreaker = std::make_unique<CircuitBreaker>(
         circuitBreakerName, circuitBreakerThreshold,
         std::chrono::seconds(resetTimeoutSeconds));
@@ -107,10 +146,26 @@ NetworkManager::NetworkManager(
         requireGreeting, this->expectedGreeting, greetingTimeoutMs,
         keepAliveEnabled, keepAliveIntervalSeconds, this->keepAlivePayload,
         this->securityHandshakeEnabled, this->securityPreSharedKey,
-        this->securityClientId);
+        this->securityClientId, this->securityIdentityMode,
+        this->securityClientPrivateKeyPath,
+        this->securityServerPublicKeyPath);
+
+    auto adaptiveChunks =
+        std::make_unique<AdaptiveChunkController>(adaptiveChunkSettings);
+
+    if (adaptiveChunks->isEnabled()) {
+      Logger::getInstance().info(
+          "NetworkManager::NetworkManager",
+          "Adaptive chunk telemetry enabled for " + circuitBreakerName +
+              " initial=" +
+              std::to_string(adaptiveChunks->suggestedChunkSize()) +
+              " bytes target_ack_ms=" +
+              std::to_string(adaptiveChunkSettings.targetAckMillis));
+    }
 
     targets.push_back(TargetContext{endpoint, std::move(circuitBreaker),
-                                    std::move(connectionPool)});
+                                    std::move(connectionPool),
+                                    std::move(adaptiveChunks)});
   }
 }
 /**
@@ -321,16 +376,18 @@ bool NetworkManager::sendPendingFailedChunks(
         const uint64_t chunkSize = static_cast<uint64_t>(chunk.getChunkSize());
         const uint64_t chunkNumber =
             static_cast<uint64_t>(chunk.getChunkNumber());
-        if (chunkNumber >
-            ((std::numeric_limits<uint64_t>::max)() / chunkSize)) {
-          markChunkAsFailedSafe(
-              chunk, "Chunk offset overflow detected for resend: " +
-                         chunk.getFilename() + ":" +
-                         std::to_string(chunk.getChunkNumber()) + ".");
-          continue;
+        uint64_t offset = chunk.getChunkOffset();
+        if (offset == 0 && chunkNumber > 0) {
+          if (chunkNumber >
+              ((std::numeric_limits<uint64_t>::max)() / chunkSize)) {
+            markChunkAsFailedSafe(
+                chunk, "Chunk offset overflow detected for resend: " +
+                           chunk.getFilename() + ":" +
+                           std::to_string(chunk.getChunkNumber()) + ".");
+            continue;
+          }
+          offset = chunkNumber * chunkSize;
         }
-
-        const uint64_t offset = chunkNumber * chunkSize;
         if (offset >= fileSizeBytes) {
           markChunkAsFailedSafe(
               chunk, "Invalid offset " + std::to_string(offset) +
@@ -468,33 +525,52 @@ bool NetworkManager::sendPendingFailedChunks(
  * @throws std::exception if an error occurs during the sending process.
  */
 NetworkManager::ChunkSendResult NetworkManager::_sendChunkInternal(
-    PooledUDTConnection &connection_wrapper, const ChunkMetadata &chunk,
-    const std::vector<char> &data, const Endpoint &endpoint,
+    PooledUDTConnection &connection_wrapper, TargetContext &target,
+    const ChunkMetadata &chunk, const std::vector<char> &data,
     uint64_t chunkOffset, uint64_t totalFileSize) {
   auto &connection = connection_wrapper;
 
+  const auto &endpoint = target.endpoint;
   const std::string serverAddress =
       endpoint.host + ":" + std::to_string(endpoint.port);
 
+  if (target.adaptiveChunks && target.adaptiveChunks->isEnabled()) {
+    Logger::getInstance().info(
+        "NetworkManager::_sendChunkInternal",
+        "Adaptive chunk recommendation for " + serverAddress +
+            " before chunk " + std::to_string(chunk.getChunkNumber()) +
+            ": current_chunk_bytes=" + std::to_string(data.size()) +
+            " recommended_next_chunk_bytes=" +
+            std::to_string(target.adaptiveChunks->suggestedChunkSize(
+                totalFileSize > chunkOffset ? totalFileSize - chunkOffset
+                                            : 0)));
+  }
+
   // Serializa a mensagem
   std::vector<char> serializedMessage = serializeChunkMessage(
-      chunk.getFilename(),
-      chunk.getFilePath().parent_path().filename().u8string(), serverAddress,
+      chunk.getFilename(), directoryForChunk(chunk), serverAddress,
       chunk.getChunkNumber(), chunk.getTotalChunk(), chunkOffset, totalFileSize,
       chunk.getHash(), data);
 
   if (securityEnabled) {
     try {
+      const std::string secureKey =
+          secureKeyForConnection(connection, securityPreSharedKey);
       serializedMessage =
-          SecurePacket::EncryptPacket(serializedMessage, securityPreSharedKey);
+          SecurePacket::EncryptPacket(serializedMessage, secureKey);
     } catch (const std::exception &e) {
       Logger::getInstance().error(
           "NetworkManager::_sendChunkInternal",
           "Failed to encrypt chunk " +
               std::to_string(chunk.getChunkNumber()) + ": " + e.what());
+      if (target.adaptiveChunks) {
+        target.adaptiveChunks->recordFailure();
+      }
       return ChunkSendResult::Failure;
     }
   }
+
+  const auto sendStart = std::chrono::steady_clock::now();
 
   // Envia a mensagem
   if (!connection->sendAll(serializedMessage.data(),
@@ -503,6 +579,9 @@ NetworkManager::ChunkSendResult NetworkManager::_sendChunkInternal(
         "NetworkManager::_sendChunkInternal",
         "sendAll failed for chunk " + std::to_string(chunk.getChunkNumber()) +
             ": " + std::string(UDT::getlasterror().getErrorMessage()));
+    if (target.adaptiveChunks) {
+      target.adaptiveChunks->recordFailure();
+    }
     return ChunkSendResult::Failure; // Falhou no envio
   }
 
@@ -514,13 +593,39 @@ NetworkManager::ChunkSendResult NetworkManager::_sendChunkInternal(
         "receive control message failed for chunk " +
             std::to_string(chunk.getChunkNumber()) + ": " +
             std::string(UDT::getlasterror().getErrorMessage()));
+    if (target.adaptiveChunks) {
+      target.adaptiveChunks->recordFailure();
+    }
     return ChunkSendResult::Failure; // Falhou na recepÃƒÂ§ÃƒÂ£o
   }
 
+  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - sendStart);
+
   // Processa a resposta
   if (serverResponse == RESPONSE_SUCCESS) {
+    if (target.adaptiveChunks) {
+      target.adaptiveChunks->recordSuccess(data.size(), elapsed);
+      const auto snapshot = target.adaptiveChunks->snapshot();
+      if (snapshot.enabled) {
+        Logger::getInstance().info(
+            "NetworkManager::_sendChunkInternal",
+            "Adaptive chunk telemetry for " + serverAddress +
+                " chunk=" + std::to_string(chunk.getChunkNumber()) +
+                " bytes=" + std::to_string(data.size()) +
+                " ack_ms=" + std::to_string(elapsed.count()) +
+                " ewma_ack_ms=" + std::to_string(snapshot.ewmaAckMillis) +
+                " ewma_throughput_Bps=" +
+                std::to_string(snapshot.ewmaThroughputBytesPerSecond) +
+                " recommended_next_chunk_bytes=" +
+                std::to_string(snapshot.suggestedChunkSizeBytes));
+      }
+    }
     return ChunkSendResult::Success;
   } else if (serverResponse == RESPONSE_SUCCESS_FILE_COMPLETE) {
+    if (target.adaptiveChunks) {
+      target.adaptiveChunks->recordSuccess(data.size(), elapsed);
+    }
     if (!sendControlMessage(connection, "CLOSE_NOW")) {
       Logger::getInstance().warning(
           "NetworkManager::_sendChunkInternal",
@@ -529,6 +634,9 @@ NetworkManager::ChunkSendResult NetworkManager::_sendChunkInternal(
     }
     return ChunkSendResult::Success;
   } else if (serverResponse == RESPONSE_FILE_ALREADY_EXISTS) {
+    if (target.adaptiveChunks) {
+      target.adaptiveChunks->recordSuccess(data.size(), elapsed);
+    }
     if (!sendControlMessage(connection, "CLOSE_NOW")) {
       Logger::getInstance().warning(
           "NetworkManager::_sendChunkInternal",
@@ -541,8 +649,29 @@ NetworkManager::ChunkSendResult NetworkManager::_sendChunkInternal(
                                 "Server responded with failure for chunk " +
                                     std::to_string(chunk.getChunkNumber()) +
                                     ". Response: " + serverResponse);
+    if (target.adaptiveChunks) {
+      target.adaptiveChunks->recordFailure();
+    }
     return ChunkSendResult::Failure;
   }
+}
+
+uint64_t NetworkManager::getRecommendedChunkSize(uint64_t remainingBytes) const {
+  uint64_t recommendation = 0;
+  for (const auto &target : targets) {
+    if (!target.adaptiveChunks || !target.adaptiveChunks->isEnabled()) {
+      continue;
+    }
+    const uint64_t targetRecommendation =
+        target.adaptiveChunks->suggestedChunkSize(remainingBytes);
+    if (targetRecommendation == 0) {
+      continue;
+    }
+    if (recommendation == 0 || targetRecommendation < recommendation) {
+      recommendation = targetRecommendation;
+    }
+  }
+  return recommendation;
 }
 
 bool NetworkManager::sendControlMessage(PooledUDTConnection &connection,
@@ -552,8 +681,10 @@ bool NetworkManager::sendControlMessage(PooledUDTConnection &connection,
   }
 
   try {
+    const std::string secureKey =
+        secureKeyForConnection(connection, securityPreSharedKey);
     std::vector<char> encrypted =
-        SecurePacket::EncryptControlMessage(message, securityPreSharedKey);
+        SecurePacket::EncryptControlMessage(message, secureKey);
     return connection->sendAll(encrypted.data(),
                                static_cast<int>(encrypted.size()));
   } catch (const std::exception &e) {
@@ -612,8 +743,10 @@ bool NetworkManager::receiveControlMessage(PooledUDTConnection &connection,
   }
 
   try {
+    const std::string secureKey =
+        secureKeyForConnection(connection, securityPreSharedKey);
     message =
-        SecurePacket::DecryptControlMessage(buffer, securityPreSharedKey);
+        SecurePacket::DecryptControlMessage(buffer, secureKey);
     return true;
   } catch (const std::exception &e) {
     Logger::getInstance().warning("NetworkManager::receiveControlMessage",
@@ -639,6 +772,9 @@ NetworkManager::ChunkSendResult NetworkManager::sendChunkToTarget(
         "NetworkManager::sendChunkToTarget",
         "Circuit breaker OPEN for " + serverLabel + ". Skipping chunk " +
             std::to_string(chunk.getChunkNumber()) + ".");
+    if (target.adaptiveChunks) {
+      target.adaptiveChunks->recordFailure();
+    }
     return ChunkSendResult::Failure;
   }
 
@@ -663,9 +799,12 @@ NetworkManager::ChunkSendResult NetworkManager::sendChunkToTarget(
               std::to_string(chunk.getChunkNumber()) + " (attempt " +
               std::to_string(currentRetry) + "/" + std::to_string(maxRetries) +
               ").");
+      if (target.adaptiveChunks) {
+        target.adaptiveChunks->recordFailure();
+      }
     } else {
       auto result =
-          _sendChunkInternal(*connectionWrapper, chunk, data, target.endpoint,
+          _sendChunkInternal(*connectionWrapper, target, chunk, data,
                              chunkOffset, totalFileSize);
       if (result == ChunkSendResult::Success) {
         target.circuitBreaker->reportSuccess();
@@ -729,6 +868,9 @@ NetworkManager::ChunkSendResult NetworkManager::sendPendingChunkToTarget(
         "NetworkManager::sendPendingChunkToTarget",
         "Circuit breaker OPEN for " + serverLabel + ". Skipping chunk " +
             std::to_string(chunk.getChunkNumber()) + " from pending queue.");
+    if (target.adaptiveChunks) {
+      target.adaptiveChunks->recordFailure();
+    }
     return ChunkSendResult::Failure;
   }
 
@@ -755,6 +897,9 @@ NetworkManager::ChunkSendResult NetworkManager::sendPendingChunkToTarget(
               std::to_string(chunk.getChunkNumber()) + " (attempt " +
               std::to_string(attemptsForTarget) + "/" +
               std::to_string(maxRetries) + ").");
+      if (target.adaptiveChunks) {
+        target.adaptiveChunks->recordFailure();
+      }
 
       try {
         database.updateChunkRetries(chunk.getFilePath(), chunk.getChunkNumber(),
@@ -769,7 +914,7 @@ NetworkManager::ChunkSendResult NetworkManager::sendPendingChunkToTarget(
       }
     } else {
       auto sendResult =
-          _sendChunkInternal(*connectionWrapper, chunk, data, target.endpoint,
+          _sendChunkInternal(*connectionWrapper, target, chunk, data,
                              chunkOffset, totalFileSize);
       if (sendResult == ChunkSendResult::Success) {
         target.circuitBreaker->reportSuccess();

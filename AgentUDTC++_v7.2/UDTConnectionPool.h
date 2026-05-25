@@ -102,6 +102,9 @@ class UDTConnectionPool {
     bool securityHandshakeEnabled_;
     std::string securityPreSharedKey_;
     std::string securityClientId_;
+    std::string securityIdentityMode_;
+    std::string securityClientPrivateKeyPath_;
+    std::string securityServerPublicKeyPath_;
     std::thread keepAliveThread_;
     std::atomic<size_t> keepAliveInFlight_{0};
 
@@ -157,7 +160,10 @@ public:
         const std::string& keepAlivePayload,
         bool securityHandshakeEnabled = false,
         const std::string& securityPreSharedKey = "",
-        const std::string& securityClientId = ""
+        const std::string& securityClientId = "",
+        const std::string& securityIdentityMode = "psk",
+        const std::string& securityClientPrivateKeyPath = "",
+        const std::string& securityServerPublicKeyPath = ""
     );
 
     /**

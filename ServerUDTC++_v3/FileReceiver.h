@@ -71,6 +71,8 @@ private:
   std::mutex fileWriteMutexesMutex;
   std::unordered_map<std::string, std::unique_ptr<std::mutex>> fileWriteMutexes;
   std::mutex storageBudgetMutex;
+  std::mutex versionedTransfersMutex;
+  std::unordered_map<std::string, std::string> versionedTransferFilenames;
 
   std::mutex &getFileMutex(const std::string &key) {
     std::lock_guard<std::mutex> lock(fileWriteMutexesMutex);

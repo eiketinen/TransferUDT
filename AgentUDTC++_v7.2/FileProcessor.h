@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <string>
@@ -38,6 +40,9 @@ public:
           const ChunkMetadata &, const std::vector<char> &, uint64_t, uint64_t)>
           chunkProcessorFunc);
 
+  void setDynamicChunkSizeProvider(
+      std::function<DWORDLONG(uint64_t)> chunkSizeProvider);
+
   bool isFileFullyProcessed(const fs::path &filePath);
   bool isFileBeingProcessed(const fs::path &filePath);
   void markAsProcessing(const fs::path &filePath);
@@ -67,8 +72,12 @@ private:
 
   int memoryUsagePercentLimit;
 
+  std::function<DWORDLONG(uint64_t)> dynamicChunkSizeProvider;
+
   mutable std::mutex failedFilesMutex_;
   std::map<std::wstring, int> failedFileRetries_;
+  mutable std::mutex activeFileMutexesMutex_;
+  std::map<std::wstring, std::shared_ptr<std::mutex>> activeFileMutexes_;
 
   bool splitFile(
       std::ifstream &file, const fs::path &filePath, std::streamsize fileSize,

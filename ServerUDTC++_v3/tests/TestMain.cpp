@@ -31,6 +31,7 @@ void configureServerConfigForTests(const TestEnvironment &env) {
   cfg << " log.max_size_mb = 1\n";
   cfg << " log.backup_count = 1\n";
   cfg << " log.flush_level = always\n";
+  cfg << " resend.changed_files.server_policy = overwrite\n";
   cfg << " security.enabled = true\n";
   cfg << " security.handshake.enabled = true\n";
   cfg << " security.allowed_client_ids = agent-one\n";
@@ -68,6 +69,7 @@ int main() {
   runServerConfigTests(stats, env);
   runChunkPacketParserTests(stats);
   runCircuitBreakerTests(stats);
+  runSecurityHandshakeTests(stats, env);
 
   Database::initialize(env.dbPath.string());
   auto &db = Database::getInstance();

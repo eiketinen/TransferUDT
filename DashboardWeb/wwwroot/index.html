@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TransferUDT Dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section id="login" class="login-panel">
+      <h1>TransferUDT Dashboard</h1>
+      <form id="login-form">
+        <label>Senha do operador</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Entrar</button>
+      </form>
+      <p id="login-error"></p>
+    </section>
+
+    <section id="app" hidden>
+      <header class="topbar">
+        <div>
+          <h1>TransferUDT</h1>
+          <span id="updated-at"></span>
+        </div>
+        <button id="refresh">Atualizar</button>
+      </header>
+
+      <section class="metrics">
+        <article><strong id="agents-online">0</strong><span>Agents online</span></article>
+        <article><strong id="agents-offline">0</strong><span>Agents offline</span></article>
+        <article><strong id="pending-files">0</strong><span>Arquivos pendentes</span></article>
+        <article><strong id="failed-files">0</strong><span>Falhas</span></article>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>Agents</h2>
+          <table>
+            <thead><tr><th>Client ID</th><th>Host</th><th>Status</th><th>Fila</th><th>Falhas</th><th>Último heartbeat</th></tr></thead>
+            <tbody id="agents-table"></tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <h2>Server</h2>
+          <div id="server-status" class="kv"></div>
+        </article>
+
+        <article class="panel">
+          <h2>Transferências</h2>
+          <table>
+            <thead><tr><th>Agente</th><th>Arquivo</th><th>Status</th><th>Concluído em</th></tr></thead>
+            <tbody id="transfers-table"></tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <h2>Logs</h2>
+          <pre id="logs"></pre>
+        </article>
+      </section>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

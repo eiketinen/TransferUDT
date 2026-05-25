@@ -46,6 +46,7 @@ public:
                          int chunkNumber, const std::string &status);
   int getTotalChunkCount(const std::string &client,
                          const std::string &filename);
+  int getChunkRowCount(const std::string &client, const std::string &filename);
   std::vector<ChunkMetadata> getChunksForFile(const std::string &client,
                                               const std::string &filename);
   int getChunkStatus(const std::string &client, const std::string &filename,
@@ -57,6 +58,8 @@ public:
 
   void addReconstructedFile(const std::string &clientAddress,
                             const std::string &filename, const fs::path &path);
+  void deleteReconstructedFile(const std::string &clientAddress,
+                               const std::string &filename);
   void deleteChunksByFile(const std::string &clientAddress,
                           const std::string &filename);
 

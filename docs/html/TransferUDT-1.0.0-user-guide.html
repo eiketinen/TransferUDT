@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TransferUDT 1.0.0 - Guia do Usuario</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --ink: #132033;
+      --muted: #5b6678;
+      --line: #d8dee8;
+      --brand: #0f766e;
+      --brand-dark: #0b5d57;
+      --warn: #8a5a00;
+      --danger: #a23232;
+      --code: #0d1726;
+      --code-ink: #e6edf7;
+      --shadow: 0 16px 45px rgba(29, 42, 61, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, sans-serif;
+      line-height: 1.55;
+    }
+
+    a { color: var(--brand-dark); }
+    .layout {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 24px;
+      background: #0d1726;
+      color: #ecf3fb;
+      overflow: auto;
+    }
+
+    aside h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    aside .version {
+      color: #aab7c7;
+      font-size: 13px;
+      margin-bottom: 18px;
+    }
+
+    .search {
+      width: 100%;
+      border: 1px solid #334158;
+      border-radius: 6px;
+      background: #101d31;
+      color: #fff;
+      padding: 10px 12px;
+      margin: 0 0 18px;
+      font-size: 14px;
+    }
+
+    nav a {
+      display: block;
+      padding: 8px 10px;
+      margin: 2px 0;
+      color: #dbe7f4;
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    nav a:hover, nav a.active {
+      background: #17263d;
+      color: #ffffff;
+    }
+
+    main {
+      max-width: 1160px;
+      padding: 36px 48px 80px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #ffffff, #edf7f5);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+    }
+
+    .hero h2 {
+      margin: 0 0 8px;
+      font-size: 34px;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      max-width: 820px;
+      color: var(--muted);
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0 0;
+    }
+
+    .meta div, section, .callout, .flow, .matrix {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .meta div { padding: 14px; }
+    .meta strong { display: block; font-size: 13px; color: var(--muted); }
+    .meta span { display: block; font-weight: 700; margin-top: 4px; }
+
+    section {
+      padding: 26px;
+      margin: 18px 0;
+    }
+
+    section h2 {
+      margin: 0 0 14px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    section h3 {
+      margin: 22px 0 8px;
+      font-size: 18px;
+    }
+
+    p { margin: 8px 0 12px; }
+    ul, ol { padding-left: 22px; }
+    li { margin: 5px 0; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fbfcfe;
+    }
+
+    .card h3 { margin-top: 0; }
+
+    .callout {
+      padding: 14px 16px;
+      margin: 14px 0;
+      border-left: 5px solid var(--brand);
+    }
+
+    .callout.warn { border-left-color: var(--warn); background: #fff9ec; }
+    .callout.danger { border-left-color: var(--danger); background: #fff3f3; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      padding: 16px;
+      margin: 14px 0;
+      background: #fbfcfe;
+    }
+
+    .step {
+      position: relative;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      min-height: 110px;
+    }
+
+    .step strong {
+      display: block;
+      color: var(--brand-dark);
+      margin-bottom: 6px;
+    }
+
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      background: #fff;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th { background: #eef3f7; }
+
+    .code-block {
+      position: relative;
+      margin: 12px 0;
+    }
+
+    pre {
+      overflow: auto;
+      background: var(--code);
+      color: var(--code-ink);
+      border-radius: 8px;
+      padding: 16px;
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    code { font-family: Consolas, "Courier New", monospace; }
+    .copy {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      border: 1px solid #334158;
+      border-radius: 6px;
+      background: #18263a;
+      color: #fff;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 12px 14px;
+      margin: 10px 0;
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #e3f4f2;
+      color: var(--brand-dark);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; }
+      aside {
+        position: static;
+        height: auto;
+      }
+      main { padding: 24px 18px 60px; }
+      .meta, .grid, .flow { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <h1>TransferUDT</h1>
+      <div class="version">Guia do Usuario 1.0.0</div>
+      <input class="search" id="search" type="search" placeholder="Buscar no guia">
+      <nav id="nav">
+        <a href="#visao-geral">Visao geral</a>
+        <a href="#arquitetura">Arquitetura</a>
+        <a href="#pre-requisitos">Pre-requisitos</a>
+        <a href="#instalacao">Instalacao</a>
+        <a href="#configuracao">Configuracao</a>
+        <a href="#dashboard">Dashboard</a>
+        <a href="#validacao">Validacao</a>
+        <a href="#operacao">Operacao</a>
+        <a href="#troubleshooting">Troubleshooting</a>
+        <a href="#release">Release</a>
+      </nav>
+    </aside>
+
+    <main>
+      <div class="hero">
+        <h2>TransferUDT 1.0.0</h2>
+        <p>Sistema Windows para transferencia de arquivos por UDT com Agent,
+        Server, Dashboard HTTPS, servicos Windows, seguranca por handshake e
+        pacote oficial de distribuicao.</p>
+        <div class="meta">
+          <div><strong>Plataforma</strong><span>Windows x64</span></div>
+          <div><strong>Instalacao</strong><span>Wizard administrativo</span></div>
+          <div><strong>Dashboard</strong><span>HTTPS 8443</span></div>
+          <div><strong>Server</strong><span>TCP 50051</span></div>
+        </div>
+      </div>
+
+      <section id="visao-geral" data-search>
+        <h2>Visao geral</h2>
+        <p>TransferUDT move arquivos entre maquinas Windows em rede privada ou
+        controlada. O Agent observa diretorios locais, divide arquivos em
+        chunks e envia para o Server. O Server valida, persiste e reconstrui os
+        arquivos. O Dashboard oferece observabilidade via HTTPS.</p>
+
+        <div class="grid">
+          <div class="card">
+            <h3>Agent</h3>
+            <p>Monitora pastas, detecta estabilidade do arquivo, envia chunks,
+            registra estado local e reporta heartbeat ao Dashboard.</p>
+          </div>
+          <div class="card">
+            <h3>Server</h3>
+            <p>Recebe chunks, valida limites, hash e politica de cliente,
+            armazena partes e reconstrui o arquivo no destino.</p>
+          </div>
+          <div class="card">
+            <h3>Dashboard</h3>
+            <p>Mostra Agents online, falhas, transferencias, status do Server e
+            logs recentes em uma interface HTTPS local.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="arquitetura" data-search>
+        <h2>Arquitetura</h2>
+        <div class="flow">
+          <div class="step"><strong>1. Watch</strong>Arquivo aparece na pasta monitorada do Agent.</div>
+          <div class="step"><strong>2. Chunk</strong>Agent divide o arquivo e calcula metadata/hash.</div>
+          <div class="step"><strong>3. Transfer</strong>Chunks sao enviados ao Server por UDT.</div>
+          <div class="step"><strong>4. Rebuild</strong>Server grava chunks e reconstrui o arquivo.</div>
+          <div class="step"><strong>5. Observe</strong>Dashboard exibe status, logs e heartbeats.</div>
+        </div>
+
+        <h3>Caminhos padrao</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Item</th><th>Caminho</th></tr></thead>
+            <tbody>
+              <tr><td>Binarios</td><td><code>C:\Program Files\TransferUDT</code></td></tr>
+              <tr><td>Configuracao e dados</td><td><code>C:\ProgramData\TransferUDT</code></td></tr>
+              <tr><td>Agent watch</td><td><code>C:\ProgramData\TransferUDT\Agent\watch</code></td></tr>
+              <tr><td>Server reconstructed</td><td><code>C:\ProgramData\TransferUDT\Server\reconstructed</code></td></tr>
+              <tr><td>Dashboard</td><td><code>https://localhost:8443/</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="pre-requisitos" data-search>
+        <h2>Pre-requisitos</h2>
+        <h3>Maquina de execucao</h3>
+        <ul>
+          <li>Windows 10/11 ou Windows Server x64.</li>
+          <li>Usuario administrador para instalar servicos.</li>
+          <li>Porta TCP do Server liberada entre Agent e Server: <code>50051</code>.</li>
+          <li>Porta HTTPS do Dashboard liberada para operadores: <code>8443</code>.</li>
+          <li>Certificado <code>.pfx</code> para Dashboard em producao.</li>
+        </ul>
+
+        <h3>Maquina de build</h3>
+        <ul>
+          <li>Visual Studio 2022 com workload C++ Desktop.</li>
+          <li>.NET SDK 8.</li>
+          <li>Inno Setup 6.</li>
+          <li>Dependencias C++ via vcpkg.</li>
+        </ul>
+      </section>
+
+      <section id="instalacao" data-search>
+        <h2>Instalacao pelo wizard</h2>
+        <ol>
+          <li>Execute <code>TransferUDT-1.0.0-windows-x64-setup.exe</code> como administrador.</li>
+          <li>Escolha o perfil: Agent, Server, Server+Dashboard ou completo.</li>
+          <li>Preencha os campos solicitados pelo wizard.</li>
+          <li>Mantenha marcada a opcao de iniciar servicos apos instalar.</li>
+          <li>Valide os servicos e o Dashboard.</li>
+        </ol>
+
+        <div class="callout warn">
+          <strong>Producao:</strong> substitua certificados e segredos de teste
+          por material criptografico controlado pela organizacao.
+        </div>
+
+        <h3>Validar servicos</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>Get-Service RadarAgentUDTService,ServerUDTService,TransferUDTDashboardService</code></pre>
+        </div>
+
+        <h3>Firewall</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>New-NetFirewallRule -DisplayName "TransferUDT Server 50051" -Direction Inbound -Protocol TCP -LocalPort 50051 -Action Allow
+New-NetFirewallRule -DisplayName "TransferUDT Dashboard 8443" -Direction Inbound -Protocol TCP -LocalPort 8443 -Action Allow</code></pre>
+        </div>
+      </section>
+
+      <section id="configuracao" data-search>
+        <h2>Configuracao</h2>
+        <p>Para descricao parametro por parametro dos arquivos do Agent e do
+        Server, consulte <a href="TransferUDT-1.0.0-config-reference.html">Referencia
+        de Configuracao</a>.</p>
+        <h3>Agent minimo</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>server.targets = 10.0.0.10:50051
+data.dirs = C:/ProgramData/TransferUDT/Agent/watch
+resend.changed_files.enabled = true
+resend.changed_files.identity = sha256
+security.enabled = true
+security.handshake.enabled = true
+security.allow_insecure = false
+security.identity.mode = psk
+security.client_id = agent-001
+security.psk = use-um-segredo-forte-com-32-ou-mais-caracteres
+dashboard.enabled = true
+dashboard.url = https://servidor-dashboard:8443
+dashboard.heartbeat.interval.seconds = 15</code></pre>
+        </div>
+
+        <h3>Server minimo</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>server.bind_address = 0.0.0.0
+server.port = 50051
+server.allowed_clients = 10.0.0.11,10.0.0.12
+server.storage_path = C:/ProgramData/TransferUDT/Server/storage
+server.reconstructed_path = C:/ProgramData/TransferUDT/Server/reconstructed
+resend.changed_files.server_policy = overwrite
+security.enabled = true
+security.handshake.enabled = true
+security.allow_insecure = false
+security.identity.mode = psk
+security.allowed_client_ids = agent-001
+security.client_psk.agent-001 = use-um-segredo-forte-com-32-ou-mais-caracteres</code></pre>
+        </div>
+
+        <h3>Dashboard minimo</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>{
+  "Dashboard": {
+    "BindAddress": "0.0.0.0",
+    "HttpsPort": 8443,
+    "RequireHttps": true,
+    "CertificatePath": "C:/ProgramData/TransferUDT/Dashboard/certs/dashboard.pfx",
+    "DatabasePath": "C:/ProgramData/TransferUDT/Dashboard/db/dashboard.db",
+    "ServerDatabasePath": "C:/ProgramData/TransferUDT/Server/db/server.db",
+    "ServerLogPath": "C:/ProgramData/TransferUDT/Server/logs/server.log"
+  }
+}</code></pre>
+        </div>
+      </section>
+
+      <section id="dashboard" data-search>
+        <h2>Dashboard</h2>
+        <p>Abra o Dashboard em <code>https://localhost:8443/</code> ou no host
+        configurado. Use a senha de operador criada no wizard.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Indicador</th><th>Significado</th><th>Acao esperada</th></tr></thead>
+            <tbody>
+              <tr><td>Agents online</td><td>Agents com heartbeat recente.</td><td>Confirmar que todos os hosts esperados aparecem.</td></tr>
+              <tr><td>Agents offline</td><td>Agents conhecidos sem heartbeat recente.</td><td>Verificar servico, rede e URL do Dashboard no Agent.</td></tr>
+              <tr><td>Arquivos pendentes</td><td>Itens aguardando envio ou finalizacao.</td><td>Monitorar se a fila diminui.</td></tr>
+              <tr><td>Falhas</td><td>Erros reportados por Agent ou Server.</td><td>Ler logs e corrigir causa raiz.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="validacao" data-search>
+        <h2>Validacao pos-instalacao</h2>
+        <h3>Teste funcional</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>Set-Content -Path C:\ProgramData\TransferUDT\Agent\watch\teste-transferudt.txt -Value "TransferUDT OK" -Encoding UTF8
+Get-ChildItem C:\ProgramData\TransferUDT\Server\reconstructed -Recurse -File</code></pre>
+        </div>
+
+        <h3>Conectividade</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>Test-NetConnection servidor-transferudt -Port 50051
+Test-NetConnection servidor-dashboard -Port 8443</code></pre>
+        </div>
+
+        <h3>Checklist</h3>
+        <ul>
+          <li><span class="pill">OK</span> Servicos em estado Running.</li>
+          <li><span class="pill">OK</span> Dashboard abre em HTTPS.</li>
+          <li><span class="pill">OK</span> Agent aparece online.</li>
+          <li><span class="pill">OK</span> Arquivo de teste aparece no Server.</li>
+          <li><span class="pill">OK</span> Logs sem erro recorrente.</li>
+        </ul>
+      </section>
+
+      <section id="operacao" data-search>
+        <h2>Operacao</h2>
+        <h3>Comandos diarios</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>Get-Service RadarAgentUDTService,ServerUDTService,TransferUDTDashboardService
+Restart-Service RadarAgentUDTService
+Restart-Service ServerUDTService
+Restart-Service TransferUDTDashboardService</code></pre>
+        </div>
+
+        <h3>Logs</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>Get-Content C:\ProgramData\TransferUDT\Agent\logs\agent.log -Tail 200
+Get-Content C:\ProgramData\TransferUDT\Server\logs\server.log -Tail 200
+Get-Content C:\ProgramData\TransferUDT\Dashboard\logs\dashboard.log -Tail 200</code></pre>
+        </div>
+
+        <h3>Backup</h3>
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>Compress-Archive -Path C:\ProgramData\TransferUDT -DestinationPath C:\Backups\TransferUDT-ProgramData.zip -Force</code></pre>
+        </div>
+      </section>
+
+      <section id="troubleshooting" data-search>
+        <h2>Troubleshooting</h2>
+
+        <details open>
+          <summary>Dashboard mostra tudo zero</summary>
+          <ul>
+            <li>Confirme login e clique em Atualizar.</li>
+            <li>Confirme <code>dashboard.enabled=true</code> no Agent.</li>
+            <li>Confirme <code>dashboard.url=https://host:8443</code>.</li>
+            <li>Leia <code>agent.log</code> para HTTP 400/401.</li>
+          </ul>
+        </details>
+
+        <details>
+          <summary>Agent nao conecta ao Server</summary>
+          <ul>
+            <li>Teste porta <code>50051</code> a partir do Agent.</li>
+            <li>Valide <code>server.targets</code>.</li>
+            <li>Valide <code>server.allowed_clients</code>.</li>
+            <li>Compare <code>security.client_id</code> e PSK entre Agent e Server.</li>
+          </ul>
+        </details>
+
+        <details>
+          <summary>Arquivo nao e reconstruido</summary>
+          <ul>
+            <li>Confira se o arquivo ainda esta sendo escrito no Agent.</li>
+            <li>Leia <code>server.log</code> para rejeicao de hash, nome, tamanho, quota ou politica <code>resend.changed_files.server_policy</code>.</li>
+            <li>Confira storage e reconstructed no Server.</li>
+          </ul>
+        </details>
+
+        <details>
+          <summary>Erro no instalador de servicos</summary>
+          <ul>
+            <li>Execute como administrador.</li>
+            <li>Confirme se servicos antigos foram parados.</li>
+            <li>Confirme PFX e senha do PFX.</li>
+            <li>Em laboratorio limpo, marque substituicao de configuracoes.</li>
+          </ul>
+        </details>
+      </section>
+
+      <section id="release" data-search>
+        <h2>Release oficial</h2>
+        <p>O pacote oficial contem instalador, este guia HTML, checksums,
+        manifesto e fonte saneado.</p>
+
+        <div class="code-block">
+          <button class="copy">Copiar</button>
+          <pre><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\New-TransferUDTRelease.ps1 -Version 1.0.0 -Configuration Release -Build -RunTests</code></pre>
+        </div>
+
+        <div class="callout">
+          <strong>Validacao da release:</strong> Agent tests 27/27, Server tests
+          28/28, fonte saneado sem executaveis, DLLs, chaves privadas, PFX,
+          bancos ou logs.
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const links = Array.from(document.querySelectorAll("nav a"));
+    const sections = Array.from(document.querySelectorAll("section"));
+    const search = document.getElementById("search");
+
+    function setActive() {
+      let current = sections[0]?.id;
+      for (const section of sections) {
+        if (section.getBoundingClientRect().top < 140) current = section.id;
+      }
+      links.forEach(link => link.classList.toggle("active", link.getAttribute("href") === "#" + current));
+    }
+
+    function filterDocs() {
+      const term = search.value.trim().toLowerCase();
+      sections.forEach(section => {
+        const text = section.innerText.toLowerCase();
+        section.classList.toggle("hidden", term.length > 0 && !text.includes(term));
+      });
+    }
+
+    document.addEventListener("scroll", setActive, { passive: true });
+    search.addEventListener("input", filterDocs);
+
+    document.querySelectorAll(".copy").forEach(button => {
+      button.addEventListener("click", async () => {
+        const code = button.parentElement.querySelector("code").innerText;
+        await navigator.clipboard.writeText(code);
+        const old = button.textContent;
+        button.textContent = "Copiado";
+        setTimeout(() => button.textContent = old, 1200);
+      });
+    });
+
+    setActive();
+  </script>
+</body>
+</html>

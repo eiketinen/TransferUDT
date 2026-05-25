@@ -1,0 +1,76 @@
+:root {
+  color-scheme: light;
+  font-family: Segoe UI, Arial, sans-serif;
+  background: #f6f7f9;
+  color: #172033;
+}
+body { margin: 0; }
+.shell { max-width: 1380px; margin: 0 auto; padding: 24px; }
+.login-panel {
+  max-width: 420px;
+  margin: 12vh auto;
+  padding: 28px;
+  background: #fff;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+}
+h1, h2 { margin: 0; letter-spacing: 0; }
+h1 { font-size: 28px; }
+h2 { font-size: 17px; margin-bottom: 14px; }
+label { display: block; margin: 18px 0 6px; font-weight: 600; }
+input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 12px;
+  border: 1px solid #b9c2d0;
+  border-radius: 6px;
+  font-size: 15px;
+}
+button {
+  margin-top: 14px;
+  border: 0;
+  border-radius: 6px;
+  background: #0f766e;
+  color: #fff;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+.topbar span { display: block; color: #5d6878; margin-top: 4px; }
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.metrics article, .panel {
+  background: #fff;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+}
+.metrics article { padding: 18px; }
+.metrics strong { display: block; font-size: 30px; margin-bottom: 6px; }
+.metrics span { color: #5d6878; }
+.grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; }
+.panel { padding: 18px; overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; border-bottom: 1px solid #e8ecf2; padding: 9px 8px; vertical-align: top; }
+th { color: #4c596b; font-size: 12px; text-transform: uppercase; }
+.ok { color: #047857; font-weight: 700; }
+.bad { color: #b91c1c; font-weight: 700; }
+.kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.kv div { padding: 10px; background: #f6f7f9; border-radius: 6px; }
+pre {
+  min-height: 260px;
+  max-height: 440px;
+  overflow: auto;
+  white-space: pre-wrap;
+  margin: 0;
+  font-size: 13px;
+}
+#login-error { color: #b91c1c; min-height: 20px; }
+@media (max-width: 920px) {
+  .metrics, .grid { grid-template-columns: 1fr; }
+  .topbar { align-items: flex-start; gap: 10px; flex-direction: column; }
+}

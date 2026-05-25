@@ -1,7 +1,11 @@
 ﻿#include "FileProcessor.h"
 #include "RadarConfig.h"
+#include "WatchedPathMapper.h"
 #include <algorithm>
+#include <cstdint>
 #include <cwctype>
+#include <limits>
+#include <utility>
 
 namespace fs = std::filesystem;
 
@@ -43,6 +47,14 @@ static fs::path absoluteNormalPath(const fs::path &path) {
     absolute = path;
   }
   return absolute.lexically_normal();
+}
+
+static std::wstring processingLockKey(const fs::path &path) {
+#ifdef _WIN32
+  return normalizePathElement(absoluteNormalPath(path));
+#else
+  return absoluteNormalPath(path).wstring();
+#endif
 }
 
 static fs::path weaklyCanonicalPath(const fs::path &path, std::error_code &ec) {
@@ -155,6 +167,16 @@ bool FileProcessor::processFile(
         const ChunkMetadata &, const std::vector<char> &, uint64_t, uint64_t)>
         chunkProcessorFunc) {
   std::string filename = filePath.filename().u8string();
+  std::shared_ptr<std::mutex> activeFileMutex;
+  {
+    std::lock_guard<std::mutex> lock(activeFileMutexesMutex_);
+    auto &entry = activeFileMutexes_[processingLockKey(filePath)];
+    if (!entry) {
+      entry = std::make_shared<std::mutex>();
+    }
+    activeFileMutex = entry;
+  }
+  std::unique_lock<std::mutex> activeFileLock(*activeFileMutex);
 
   try {
     if (!isSafeConfiguredFilePath(filePath)) {
@@ -189,6 +211,42 @@ bool FileProcessor::processFile(
     }
     file.seekg(0, std::ios::beg);
 
+    const auto &config = RadarConfig::getInstance();
+    if (config.isChangedFilesResendEnabled()) {
+      if (config.getChangedFilesIdentity() != "sha256") {
+        throw std::runtime_error("Unsupported changed-file identity: " +
+                                 config.getChangedFilesIdentity());
+      }
+
+      const int64_t lastWriteTime =
+          fs::last_write_time(filePath).time_since_epoch().count();
+      const std::string contentHash =
+          fileVerifier.calculateFileHash(filePath.u8string());
+      if (contentHash.empty()) {
+        throw std::runtime_error("Error calculating file hash: " + filename);
+      }
+
+      const bool shouldProcess = database.markFileAsProcessingIfChanged(
+          filePath, static_cast<int64_t>(fileSize), lastWriteTime, contentHash);
+      if (!shouldProcess) {
+        Logger::getInstance().info(
+            "FileProcessor::processFile",
+            "File content already processed, skipping resend: " + filename);
+        return true;
+      }
+    } else {
+      if (database.isFileFullyProcessed(filePath)) {
+        Logger::getInstance().info(
+            "FileProcessor::processFile",
+            "File path already processed and changed-file resend is disabled: " +
+                filename);
+        return true;
+      }
+      database.markFileAsProcessing(filePath);
+    }
+
+    database.deleteFileChunks(filePath);
+
     // Calculate optimal chunk size
     DWORDLONG chunkSize = MemoryManager::calculateOptimalChunkSize(
         fileSize, defaultChunkSize, memoryUsagePercentLimit);
@@ -211,6 +269,11 @@ bool FileProcessor::isFileFullyProcessed(const fs::path &filePath) {
   return database.isFileFullyProcessed(filePath);
 }
 
+void FileProcessor::setDynamicChunkSizeProvider(
+    std::function<DWORDLONG(uint64_t)> chunkSizeProvider) {
+  dynamicChunkSizeProvider = std::move(chunkSizeProvider);
+}
+
 /**
  * Split a file into chunks
  * @param file Open file stream
@@ -228,26 +291,64 @@ bool FileProcessor::splitFile(
         chunkProcessorFunc) {
   // Extract filepath from path
   std::string filepath = filePath.u8string();
+  std::string relativeDirectory;
+  WatchedPathMapper::TryBuildRelativeDirectory(
+      filePath, RadarConfig::getInstance().getDataDirs(), relativeDirectory);
   bool success = true;
 
   try {
-    // Calculate total number of chunks
-    int totalChunks = static_cast<int>(fileSize / chunkSize +
-                                       ((fileSize % chunkSize) ? 1 : 0));
+    constexpr DWORDLONG minChunkSize = 32ULL * 1024ULL;
+    constexpr DWORDLONG maxChunkSize = 4ULL * 1024ULL * 1024ULL;
+    const bool dynamicChunking = static_cast<bool>(dynamicChunkSizeProvider);
+
+    // Fixed mode keeps the original total count semantics. Dynamic mode uses
+    // total_chunk=0 until the final chunk, where the actual count is known.
+    int totalChunks = 0;
+    if (!dynamicChunking) {
+      totalChunks = static_cast<int>(fileSize / chunkSize +
+                                     ((fileSize % chunkSize) ? 1 : 0));
+    }
     Logger::getInstance().info(
         "FileProcessor::splitFile",
         "Filepath: " + filepath + " Size: " + std::to_string(fileSize) +
-            " bytes; Total number of chunks: " + std::to_string(totalChunks));
-
-    // Buffer for reading file
-    std::vector<char> buffer(chunkSize);
+            " bytes; Chunk mode: " +
+            (dynamicChunking ? "adaptive" : "fixed") +
+            (dynamicChunking ? "" : "; Total number of chunks: " +
+                                      std::to_string(totalChunks)));
 
     // Process each chunk
     int chunkNumber = 0;
-    while (success && file) {
+    uint64_t currentOffset = 0;
+    const uint64_t totalFileSize = static_cast<uint64_t>(fileSize);
+    while (success && file && currentOffset < totalFileSize) {
+      uint64_t remainingBytes = totalFileSize - currentOffset;
+      DWORDLONG readChunkSize = chunkSize;
+      if (dynamicChunking) {
+        readChunkSize = dynamicChunkSizeProvider(remainingBytes);
+        if (readChunkSize == 0) {
+          readChunkSize = chunkSize;
+        }
+      }
+      readChunkSize =
+          (std::max)(minChunkSize, (std::min)(readChunkSize, maxChunkSize));
+      readChunkSize =
+          (std::min)(readChunkSize, static_cast<DWORDLONG>(remainingBytes));
+      if (readChunkSize == 0 ||
+          readChunkSize >
+              static_cast<DWORDLONG>(
+                  (std::numeric_limits<std::streamsize>::max)())) {
+        Logger::getInstance().critical(
+            "FileProcessor::splitFile",
+            "Invalid chunk size selected: " + std::to_string(readChunkSize));
+        success = false;
+        break;
+      }
+
+      std::vector<char> buffer(static_cast<size_t>(readChunkSize));
+
       // Read a chunk of data
       std::streamsize bytesRead =
-          file.read(buffer.data(), static_cast<std::streamsize>(chunkSize))
+          file.read(buffer.data(), static_cast<std::streamsize>(readChunkSize))
               .gcount();
       if (bytesRead <= 0) {
         break; // No more data to read
@@ -266,13 +367,18 @@ bool FileProcessor::splitFile(
         break;
       }
 
-      // Create metadata for this chunk
-      ChunkMetadata chunk(filePath.filename(), chunkNumber, totalChunks,
-                          static_cast<int>(chunkSize), hash, filePath, 0);
+      const uint64_t chunkOffset = currentOffset;
+      currentOffset += static_cast<uint64_t>(bytesRead);
+      const bool isFinalChunk = currentOffset >= totalFileSize;
+      const int totalChunksForPacket =
+          dynamicChunking ? (isFinalChunk ? chunkNumber + 1 : 0) : totalChunks;
 
-      uint64_t chunkOffset =
-          static_cast<uint64_t>(chunkNumber) * static_cast<uint64_t>(chunkSize);
-      uint64_t totalFileSize = static_cast<uint64_t>(fileSize);
+      // Create metadata for this chunk.
+      ChunkMetadata chunk(filePath.filename(), chunkNumber, totalChunksForPacket,
+                          static_cast<int>(bytesRead), hash, filePath, 0);
+      chunk.setDirectory(relativeDirectory);
+      chunk.setChunkOffset(chunkOffset);
+      chunk.setTotalFileSize(totalFileSize);
 
       // Process the chunk - Network::sendChunk(chunk, buffer);
       ChunkProcessingResult sendResult =
@@ -295,10 +401,11 @@ bool FileProcessor::splitFile(
       // Store chunk metadata in database
       if (!skipRemainingFile) {
         try {
-          database.insertChunk(filePath.filename(), chunkNumber, totalChunks,
+          database.insertChunk(filePath.filename(), chunkNumber,
+                               totalChunksForPacket,
                                static_cast<int>(bytesRead),
-                               static_cast<int>(chunkSize), hash, filePath,
-                               chunkSent ? "success" : "failed");
+                               static_cast<int>(bytesRead), hash, filePath,
+                               chunkSent ? "success" : "failed", chunkOffset);
         } catch (const std::exception &e) {
           Logger::getInstance().critical("FileProcessor::splitFile",
                                          "Error inserting chunk in database: " +
@@ -319,7 +426,6 @@ bool FileProcessor::splitFile(
       if (skipRemainingFile) {
         break;
       }
-      buffer.resize(chunkSize);
     }
   } catch (const std::exception &e) {
     Logger::getInstance().error("FileProcessor::splitFile",

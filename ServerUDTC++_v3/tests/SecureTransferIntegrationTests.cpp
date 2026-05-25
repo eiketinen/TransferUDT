@@ -392,7 +392,7 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
                   "Unexpected server greeting: " + greeting);
 
           const std::string filename = "secure_transfer_e2e.bin";
-          const std::string directory = "secure_transfer";
+          const std::string directory = "secure_transfer/XXX/XXXX";
           const std::string payload = "encrypted payload delivered end to end";
           const std::vector<char> data(payload.begin(), payload.end());
           auto packet = buildChunkPacket(
@@ -432,12 +432,13 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
 
           const fs::path reconstructedPath =
               fs::path(config.getReconstructedPath()) / clientNamespace /
-              directory / filename;
+              "secure_transfer" / "XXX" / "XXXX" / filename;
           require(waitForFile(reconstructedPath, 5000),
                   "Reconstructed encrypted-transfer file should exist");
           require(readBinaryFile(reconstructedPath) == payload,
                   "Reconstructed encrypted-transfer payload should match");
-          require(db.isFileReconstructed(clientNamespace + "/" + directory, filename),
+          require(db.isFileReconstructed(clientNamespace + "/" + directory,
+                                         filename),
                   "Database should mark encrypted transfer as reconstructed");
         } catch (...) {
           client.close();

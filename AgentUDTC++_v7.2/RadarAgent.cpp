@@ -1,5 +1,7 @@
 ﻿#include "RadarAgent.h"
+#include <chrono>
 #include <filesystem>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -69,7 +71,30 @@ RadarAgent::RadarAgent(Database &database, IFileIntegrityVerifier &verifier)
       RadarConfig::getInstance().isSecurityEnabled(),
       RadarConfig::getInstance().getSecurityPreSharedKey(),
       RadarConfig::getInstance().isSecurityHandshakeEnabled(),
-      RadarConfig::getInstance().getSecurityClientId());
+      RadarConfig::getInstance().getSecurityClientId(),
+      RadarConfig::getInstance().getSecurityIdentityMode(),
+      RadarConfig::getInstance().getSecurityClientPrivateKeyPath(),
+      RadarConfig::getInstance().getSecurityServerPublicKeyPath(),
+      RadarConfig::getInstance().isAdaptiveChunkEnabled(),
+      RadarConfig::getInstance().getAdaptiveChunkMinBytes(),
+      RadarConfig::getInstance().getAdaptiveChunkMaxBytes(),
+      RadarConfig::getInstance().getAdaptiveChunkInitialBytes(),
+      RadarConfig::getInstance().getAdaptiveChunkTargetAckMillis());
+
+  if (RadarConfig::getInstance().isAdaptiveChunkEnabled()) {
+    fileProcessor->setDynamicChunkSizeProvider(
+        [this](uint64_t remainingBytes) -> DWORDLONG {
+          if (!networkManager) {
+            return 0;
+          }
+          return static_cast<DWORDLONG>(
+              networkManager->getRecommendedChunkSize(remainingBytes));
+        });
+  }
+
+  dashboardHeartbeatClient =
+      std::make_unique<DashboardHeartbeatClient>(database,
+                                                 RadarConfig::getInstance());
 
   // Create thread pool with configured number of threads
   int numThreads = RadarConfig::getInstance().getNumThreads();
@@ -100,6 +125,9 @@ void RadarAgent::start() {
   }
   // Start sending pending chunks in a separate thread
   pendingChunksThread = std::thread(&RadarAgent::pendingChunksThreadFunc, this);
+  if (dashboardHeartbeatClient) {
+    dashboardHeartbeatClient->start();
+  }
 
   // Start file watcher with callback to our handleNewFile method
   for (auto &watcher : fileWatchers) {
@@ -111,21 +139,26 @@ void RadarAgent::start() {
       // Check if file is already being processed
       if (fileProcessor->isFileBeingProcessed(filePath)) {
         Logger::getInstance().info("RadarAgent::handleNewFile",
-                                   "File is already being processed: " +
+                                   "File is already being processed; deferring "
+                                   "change check: " +
                                        filePath.string());
+        threadPool->addTask([this, filePath]() {
+          constexpr int maxWaitAttempts = 240;
+          for (int attempt = 0;
+               running && attempt < maxWaitAttempts &&
+               fileProcessor->isFileBeingProcessed(filePath);
+               ++attempt) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+          }
+
+          if (!running) {
+            return;
+          }
+
+          this->handleNewFile(filePath);
+        });
         return;
       }
-
-      // Check if file is already fully processed
-      if (fileProcessor->isFileFullyProcessed(filePath)) {
-        Logger::getInstance().info("RadarAgent::handleNewFile",
-                                   "File is Fully processed: " +
-                                       filePath.string());
-        return;
-      }
-
-      // Mark file as being processing
-      fileProcessor->markAsProcessing(filePath);
 
       this->handleNewFile(filePath);
     });
@@ -153,6 +186,10 @@ void RadarAgent::stop() {
   // Wake the pending thread immediately to avoid waiting the full poll
   // interval.
   shutdownCv.notify_all();
+
+  if (dashboardHeartbeatClient) {
+    dashboardHeartbeatClient->stop();
+  }
 
   // Stop file watcher
   for (auto &watcher : fileWatchers) {
@@ -184,21 +221,6 @@ void RadarAgent::stop() {
 void RadarAgent::handleNewFile(const fs::path &filePath) {
 
   std::string filepath = filePath.u8string();
-
-  // Delete old chunks
-  Logger::getInstance().info("RadarAgent::handleNewFile",
-                             "Ensuring clean start for: " + filepath);
-
-  try {
-    database.deleteFileChunks(filePath);
-  } catch (const std::exception &e) {
-    Logger::getInstance().critical(
-        "RadarAgent::handleNewFile",
-        "Failed to delete old chunks for " + filepath +
-            ". Skipping. Error: " + std::string(e.what()));
-    fileProcessor->markAsFileFailed(filePath);
-    return;
-  }
 
   // Add task to thread pool
   try {
@@ -286,7 +308,6 @@ void RadarAgent::pendingChunksThreadFunc() {
             continue;
           }
 
-          fileProcessor->markAsProcessing(filePath);
           handleNewFile(filePath);
         }
       }

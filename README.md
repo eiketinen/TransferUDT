@@ -2,6 +2,26 @@
 
 TransferUDT is a Windows C++ file transfer system built around UDT sockets. It has an Agent process that watches local directories, chunks files, and sends them to a Server process that validates, stores, and reconstructs the files.
 
+## Official Distribution
+
+For a packaged Windows release, use the release workflow:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\New-TransferUDTRelease.ps1 -Version 1.0.0 -Configuration Release -Build -RunTests
+```
+
+The official package is generated under:
+
+```text
+dist\releases\TransferUDT-1.0.0-windows-x64
+```
+
+Product documentation:
+
+- `docs/html/TransferUDT-1.0.0-user-guide.html`
+- `docs/security.md`
+- `docs/release-package.md`
+
 ## Current Security Features
 
 - AES-256-GCM encrypted packet envelope for chunk transfer.
@@ -63,6 +83,19 @@ Build applications:
 msbuild ServerUDTC++_v3\ServerUDTC++.vcxproj /p:Configuration=Debug /p:Platform=x64 /m
 msbuild AgentUDTC++_v7.2\AgentUDTC++.vcxproj /p:Configuration=Debug /p:Platform=x64 /m
 ```
+
+## Windows Service Installation
+
+Use `installer\build-installer.ps1` to generate a graphical Windows installer
+for Agent-only, Server-only, or combined deployments. The underlying service
+installer places binaries under `C:\Program Files\TransferUDT`, stores
+configuration under `C:\ProgramData\TransferUDT`, and sets
+`AGENT_CONFIG_PATH`/`SERVER_CONFIG_PATH` as service-specific environment
+variables so config path updates only require a service restart, not a machine
+reboot.
+
+See `docs/windows-service-installation.md` for install, update, verification,
+and uninstall commands.
 
 ## Secure Mode
 

@@ -4,8 +4,11 @@
 #include <map>
 #include <fstream>
 #include <atomic>
+#include <chrono>
+#include <memory>
 #include <mutex>
 #include <unordered_set>
+#include "AdaptiveChunkController.h"
 #include "UDTConnection.h"
 #include "CircuitBreaker.h"
 #include "ChunkMetadata.h"
@@ -64,7 +67,15 @@ public:
         bool securityEnabled = false,
         std::string securityPreSharedKey = "",
         bool securityHandshakeEnabled = false,
-        std::string securityClientId = ""
+        std::string securityClientId = "",
+        std::string securityIdentityMode = "psk",
+        std::string securityClientPrivateKeyPath = "",
+        std::string securityServerPublicKeyPath = "",
+        bool adaptiveChunkEnabled = false,
+        uint64_t adaptiveChunkMinBytes = 32ULL * 1024ULL,
+        uint64_t adaptiveChunkMaxBytes = 4ULL * 1024ULL * 1024ULL,
+        uint64_t adaptiveChunkInitialBytes = 256ULL * 1024ULL,
+        int adaptiveChunkTargetAckMillis = 700
     );
 
     virtual ~NetworkManager();
@@ -83,6 +94,8 @@ public:
      * @return true if all chunks were sent successfully, false otherwise
      */
     bool sendPendingFailedChunks(const std::atomic<bool>& is_running, std::unique_ptr<FileProcessor> &fileProcessor, int maxRetriesAbandon);
+
+    uint64_t getRecommendedChunkSize(uint64_t remainingBytes = 0) const;
 
 private:
 
@@ -106,6 +119,10 @@ private:
     std::string securityPreSharedKey;
     bool securityHandshakeEnabled;
     std::string securityClientId;
+    std::string securityIdentityMode;
+    std::string securityClientPrivateKeyPath;
+    std::string securityServerPublicKeyPath;
+    AdaptiveChunkController::Settings adaptiveChunkSettings;
     std::mutex seenSecureControlNoncesMutex;
     std::unordered_set<std::string> seenSecureControlNonces;
 
@@ -119,13 +136,14 @@ private:
         Endpoint endpoint;
         std::unique_ptr<CircuitBreaker> circuitBreaker;
         std::unique_ptr<UDTConnectionPool> connectionPool;
+        std::unique_ptr<AdaptiveChunkController> adaptiveChunks;
     };
 
     std::vector<TargetContext> targets;
 
     ChunkSendResult sendChunkToTarget(TargetContext& target, const ChunkMetadata& chunk, const std::vector<char>& data, uint64_t chunkOffset, uint64_t totalFileSize, const std::atomic<bool>* is_running);
     ChunkSendResult sendPendingChunkToTarget(TargetContext& target, const ChunkMetadata& chunk, const std::vector<char>& data, int& retryAccumulator, uint64_t chunkOffset, uint64_t totalFileSize, const std::atomic<bool>& is_running);
-    ChunkSendResult _sendChunkInternal(PooledUDTConnection& connection_wrapper, const ChunkMetadata& chunk, const std::vector<char>& data, const Endpoint& endpoint, uint64_t chunkOffset, uint64_t totalFileSize);
+    ChunkSendResult _sendChunkInternal(PooledUDTConnection& connection_wrapper, TargetContext& target, const ChunkMetadata& chunk, const std::vector<char>& data, uint64_t chunkOffset, uint64_t totalFileSize);
     bool sendControlMessage(PooledUDTConnection& connection, const std::string& message);
     bool receiveControlMessage(PooledUDTConnection& connection, std::string& message);
 

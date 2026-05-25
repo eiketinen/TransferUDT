@@ -17,6 +17,7 @@ The Agent still uses `security.psk`, but that value must match its Server-side
 security.enabled = true
 security.handshake.enabled = true
 security.allow_insecure = false
+security.identity.mode = psk
 security.client_id = agent-default
 security.psk = replace-with-a-strong-shared-secret-of-32-plus-chars
 security.allowed_client_ids = agent-default
@@ -43,6 +44,83 @@ configured, the Server only accepts identities present in that map and uses the
 matching PSK for handshake, packet decryption, and authenticated control
 messages.
 
+For private controlled networks, `security.identity.mode=signed_handshake`
+switches the authentication layer from PSK identity to signed identity plus
+ephemeral X25519 key agreement. The Agent signs the handshake transcript with
+its private key, the Server validates the matching public key for the
+`client_id`, the Server signs its proof, and both sides derive a fresh AES-GCM
+session key from the X25519 shared secret and authenticated transcript.
+
+Agent:
+
+```properties
+security.identity.mode = signed_handshake
+security.client_id = agent-default
+security.client_private_key_path = C:/ProgramData/TransferUDT/Agent/keys/agent-default.key
+security.server_public_key_path = C:/ProgramData/TransferUDT/Agent/keys/server.pub
+```
+
+Server:
+
+```properties
+security.identity.mode = signed_handshake
+security.allowed_client_ids = agent-default
+security.server_private_key_path = C:/ProgramData/TransferUDT/Server/keys/server.key
+security.client_public_key.agent-default = C:/ProgramData/TransferUDT/Server/clients/agent-default.pub
+```
+
+## Adaptive Chunk Sizing
+
+```properties
+chunk.adaptive.enabled = false
+chunk.adaptive.min_kb = 32
+chunk.adaptive.max_kb = 4096
+chunk.adaptive.initial_kb = 256
+chunk.adaptive.target_ack_ms = 700
+```
+
+When enabled, the Agent measures each chunk send plus authenticated ACK time,
+keeps an EWMA of ACK latency and throughput per Server endpoint, and chooses
+the next chunk size at send time. `chunk.adaptive.initial_kb` is used before
+enough telemetry exists; `chunk.adaptive.min_kb` and
+`chunk.adaptive.max_kb` bound the recommendation.
+
+Adaptive chunks are variable-sized. Non-final chunks carry `total_chunk=0`
+because the final count is not known yet. The final chunk declares the actual
+total count, and retry metadata stores the byte `chunk_offset` so failed chunks
+can be resent correctly even when chunk sizes differ.
+
+`chunk.adaptive.max_kb` is capped to the protocol maximum of 4 MB.
+
+## Changed-Content Resend
+
+```properties
+# Agent
+resend.changed_files.enabled = true
+resend.changed_files.identity = sha256
+
+# Server
+resend.changed_files.server_policy = overwrite
+```
+
+When enabled, the Agent does not resend every repeated path blindly. After the
+file is stable, it computes a content fingerprint using path, size, last write
+time, and whole-file SHA-256. The same path is skipped when the fingerprint is
+unchanged and sent again when the content changes.
+
+`resend.changed_files.server_policy` controls what the Server does when a new
+version starts for a logical path already reconstructed by TransferUDT:
+
+- `overwrite`: replace the managed reconstructed output.
+- `reject`: keep the existing output and tell the Agent that the file already
+  exists.
+- `versioned`: keep the existing output and write the new content to a suffixed
+  file name.
+
+Files that exist only on disk but are not registered in the Server database are
+not overwritten by `overwrite`; this protects external files in the
+reconstructed directory.
+
 ## Server Resource Limits
 
 ```properties
@@ -57,6 +135,17 @@ worker pool. When the queue is full, the Server closes newly accepted sockets.
 `server.max_file_size_mb` rejects oversized logical files before preallocation.
 `server.max_client_storage_mb` bounds reconstructed storage per authenticated
 client namespace.
+
+## Network Simulation
+
+```properties
+test.ack_delay_pattern_ms =
+```
+
+This test-only Server setting delays authenticated ACKs by chunk number. For
+example, `0,0,0,800,800,0` lets e2e runs simulate latency spikes and recovery so
+adaptive chunk sizing can be validated without changing OS network settings.
+Leave it empty in production.
 
 ## Server Exposure
 

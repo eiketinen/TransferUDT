@@ -13,7 +13,9 @@ int main() {
     env.dbPath = env.tempRoot / "tests.db";
 
     runLoggerTests(stats, env);
+    runAdaptiveChunkControllerTests(stats);
     runRadarConfigTests(stats, env);
+    runWatchedPathMapperTests(stats, env);
     runCircuitBreakerTests(stats);
 
     Database::initialize(env.dbPath.string());
