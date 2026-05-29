@@ -16,6 +16,7 @@ The command scaffolds a numbered file from `_template.md`.
 | ID | Title | Status | Authors |
 |---|---|---|---|
 | [0001](0001-multi-agent-workflow.md) | Multi-agent review workflow | approved | claude, codex |
+| [0002](0002-windows7-agent-support.md) | Windows 7 support for the Agent (x64 + x86) | proposed | claude-arquiteto |
 
 ## Status definitions
 

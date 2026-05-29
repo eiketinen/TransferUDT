@@ -106,10 +106,10 @@
     <VcpkgXUseBuiltInApplocalDeps>false</VcpkgXUseBuiltInApplocalDeps>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Platform)'=='Win32'">
-    <VcpkgTriplet>x86-windows-static</VcpkgTriplet>
+    <VcpkgTriplet>x86-windows-static-win7</VcpkgTriplet>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Platform)'=='x64'">
-    <VcpkgTriplet>x64-windows-static</VcpkgTriplet>
+    <VcpkgTriplet>x64-windows-static-win7</VcpkgTriplet>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <VcpkgUseStatic>true</VcpkgUseStatic>
@@ -121,7 +121,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);UDT_EXPORTS;UDT_EXPORTS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_WIN32_WINNT=0x0601;WINVER=0x0601;NTDDI_VERSION=0x06010000;%(PreprocessorDefinitions);UDT_EXPORTS;UDT_EXPORTS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -158,7 +158,7 @@ echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platf
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions);UDT_EXPORTS;UDT_EXPORTS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;_WIN32_WINNT=0x0601;WINVER=0x0601;NTDDI_VERSION=0x06010000;%(PreprocessorDefinitions);UDT_EXPORTS;UDT_EXPORTS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
@@ -195,7 +195,7 @@ echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platf
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>UDT_EXPORTS;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>UDT_EXPORTS;_DEBUG;_WIN32_WINNT=0x0601;WINVER=0x0601;NTDDI_VERSION=0x06010000;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
