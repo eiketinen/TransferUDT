@@ -27,6 +27,15 @@ jobs:
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows-static --x-manifest-root=AgentUDTC++_v7.2
 
+      # The test projects build in vcpkg manifest mode and need the vcpkg
+      # MSBuild integration to resolve spdlog/openssl/udt headers. A clean
+      # runner is not integrated, so do it explicitly. Without this the build
+      # fails with C1083 missing-header errors (this CI had never passed).
+      - name: Integrate vcpkg with MSBuild
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" integrate install
+
       - name: Build Server tests
         shell: pwsh
         run: |
