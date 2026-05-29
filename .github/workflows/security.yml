@@ -42,6 +42,16 @@ jobs:
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows-static --x-manifest-root=AgentUDTC++_v7.2
 
+      # The application solutions build in vcpkg manifest mode and need the
+      # vcpkg MSBuild integration to resolve spdlog/openssl headers. Without
+      # it CodeQL's build fails with C1083 and reports a configuration error
+      # (this job had never succeeded). Same fix proven on windows-ci.yml and
+      # release-build.yml.
+      - name: Integrate vcpkg with MSBuild
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" integrate install
+
       - name: Build applications
         shell: pwsh
         run: |
