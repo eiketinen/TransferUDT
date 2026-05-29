@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh run *)",
+      "Bash(powershell.exe -NoProfile -Command \"Get-Content 'C:\\\\Users\\\\Pichau\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Pichau-OneDrive-Documents-Softwares-TransferUDT--claude-worktrees-sweet-goldberg-1e626d\\\\fadf7f50-f8dc-4fc7-9a99-44c888da61df\\\\tasks\\\\bqcf1t35d.output' -Tail 4\")",
+      "Bash(gh pr *)",
+      "Bash(git fetch *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)"
+    ]
+  }
+}

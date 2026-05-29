@@ -109,9 +109,13 @@ also becomes source-compatible with Win7.
 
 ### 4.3 Dependencies (vcpkg)
 
-1. **Custom Win7 triplets.** Add `x86-windows-static-win7` and
-   `x64-windows-static-win7` under a repo `triplets/` dir — the stock static
-   triplet plus:
+1. **Custom Win7 triplets.** Add `x86-windows-win7-static` and
+   `x64-windows-win7-static` under a repo `triplets/` dir — the stock static
+   triplet plus the Win7 defines. (Implementation note: the names **must end in
+   `-static`**; the MSBuild vcpkg integration appends `-static` to
+   `VcpkgTriplet` when `VcpkgUseStatic=true` unless it already ends that way, so
+   a `...-static-win7` name resolves to the non-existent `...-static-win7-static`.)
+   Each triplet is:
    ```cmake
    set(VCPKG_C_FLAGS   "/D_WIN32_WINNT=0x0601 /DWINVER=0x0601 /DNTDDI_VERSION=0x06010000")
    set(VCPKG_CXX_FLAGS "/D_WIN32_WINNT=0x0601 /DWINVER=0x0601 /DNTDDI_VERSION=0x06010000")

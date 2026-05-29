@@ -106,10 +106,10 @@
     <VcpkgXUseBuiltInApplocalDeps>false</VcpkgXUseBuiltInApplocalDeps>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Platform)'=='Win32'">
-    <VcpkgTriplet>x86-windows-static-win7</VcpkgTriplet>
+    <VcpkgTriplet>x86-windows-win7-static</VcpkgTriplet>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Platform)'=='x64'">
-    <VcpkgTriplet>x64-windows-static-win7</VcpkgTriplet>
+    <VcpkgTriplet>x64-windows-win7-static</VcpkgTriplet>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <VcpkgUseStatic>true</VcpkgUseStatic>
