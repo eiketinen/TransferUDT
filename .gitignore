@@ -52,6 +52,16 @@ config.properties
 *.pfx
 *.p12
 
+# Release build byproducts under dist/.
+# The release pipeline regenerates installers, staging dirs, extracted
+# release folders and asset-generator output on every run. Keep only the
+# committed official artifacts: the versioned .zip packages and checksums.
+/dist/*
+!/dist/releases/
+/dist/releases/*
+!/dist/releases/*.zip
+!/dist/releases/*-SHA256SUMS.txt
+
 # OS/editor files
 Thumbs.db
 Desktop.ini
