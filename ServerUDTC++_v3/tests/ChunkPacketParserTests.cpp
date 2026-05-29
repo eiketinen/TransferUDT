@@ -62,7 +62,7 @@ void runChunkPacketParserTests(TestStats &stats) {
       [&]() {
         std::vector<char> data = {'a', 'b', 'c', 'd'};
         auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 0, 2, 0,
-                                  100, "abc123", data);
+                                  100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", data);
 
         ChunkMetadata chunk;
         std::string error;
@@ -75,7 +75,7 @@ void runChunkPacketParserTests(TestStats &stats) {
                 "Server address mismatch");
         require(chunk.getChunkNumber() == 0, "Chunk number mismatch");
         require(chunk.getTotalChunk() == 2, "Total chunk mismatch");
-        require(chunk.getHash() == "abc123", "Hash mismatch");
+        require(chunk.getHash() == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "Hash mismatch");
         require(chunk.getData() == data, "Chunk data mismatch");
       },
       stats);
@@ -85,7 +85,7 @@ void runChunkPacketParserTests(TestStats &stats) {
       [&]() {
         std::vector<char> data = {'x'};
         auto packet = buildPacket("nomedoarquivo.bin", "XXX/XXXX",
-                                  "127.0.0.1", 0, 1, 0, 1, "abc123",
+                                  "127.0.0.1", 0, 1, 0, 1, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                                   data);
 
         ChunkMetadata chunk;
@@ -111,7 +111,7 @@ void runChunkPacketParserTests(TestStats &stats) {
         appendU32(payload, 1);
         appendU64(payload, 0);   // chunkOffset
         appendU64(payload, 100); // totalFileSize
-        appendString(payload, "abc123");
+        appendString(payload, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         appendU32(payload, ChunkPacketParser::kMaxChunkSizeBytes + 1);
         payload.push_back('x');
 
@@ -132,7 +132,7 @@ void runChunkPacketParserTests(TestStats &stats) {
       "ChunkPacketParser rejects unsafe filename",
       [&]() {
         const auto packet = buildPacket("..\\evil.bin", "incoming", "127.0.0.1",
-                                        0, 1, 0, 100, "abc123", {'x'});
+                                        0, 1, 0, 100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x'});
         ChunkMetadata chunk;
         std::string error;
         const bool ok = ChunkPacketParser::Parse(packet, chunk, &error);
@@ -146,7 +146,7 @@ void runChunkPacketParserTests(TestStats &stats) {
       "ChunkPacketParser rejects unsafe directory traversal",
       [&]() {
         const auto packet = buildPacket("file.bin", "..\\secret", "127.0.0.1",
-                                        0, 1, 0, 100, "abc123", {'x'});
+                                        0, 1, 0, 100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x'});
         ChunkMetadata chunk;
         std::string error;
         const bool ok = ChunkPacketParser::Parse(packet, chunk, &error);
@@ -160,7 +160,7 @@ void runChunkPacketParserTests(TestStats &stats) {
       "ChunkPacketParser rejects out-of-range chunk number",
       [&]() {
         const auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 3,
-                                        3, 0, 100, "abc123", {'x'});
+                                        3, 0, 100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x'});
         ChunkMetadata chunk;
         std::string error;
         const bool ok = ChunkPacketParser::Parse(packet, chunk, &error);
@@ -174,7 +174,7 @@ void runChunkPacketParserTests(TestStats &stats) {
       "ChunkPacketParser accepts unknown total for adaptive non-final chunks",
       [&]() {
         const auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 3,
-                                        0, 4096, 10000, "abc123", {'x'});
+                                        0, 4096, 10000, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x'});
         ChunkMetadata chunk;
         std::string error;
         const bool ok = ChunkPacketParser::Parse(packet, chunk, &error);
@@ -188,7 +188,7 @@ void runChunkPacketParserTests(TestStats &stats) {
       "ChunkPacketParser rejects chunk byte range past file size",
       [&]() {
         const auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 0,
-                                        1, 99, 100, "abc123", {'x', 'y'});
+                                        1, 99, 100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x', 'y'});
         ChunkMetadata chunk;
         std::string error;
         const bool ok = ChunkPacketParser::Parse(packet, chunk, &error);
@@ -202,7 +202,7 @@ void runChunkPacketParserTests(TestStats &stats) {
       "ChunkPacketParser rejects mismatched packet length",
       [&]() {
         auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 0, 1, 0,
-                                  100, "abc123", {'x'});
+                                  100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x'});
         overwritePacketLength(packet, 1);
         ChunkMetadata chunk;
         std::string error;
@@ -219,7 +219,7 @@ void runChunkPacketParserTests(TestStats &stats) {
         const std::string key =
             "0123456789abcdef0123456789abcdef-secure-test-key";
         auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 0, 1, 0,
-                                  100, "abc123", {'x', 'y', 'z'});
+                                  100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x', 'y', 'z'});
 
         auto encrypted = SecurePacket::EncryptPacket(packet, key);
         require(SecurePacket::IsEncryptedPacket(encrypted),
@@ -243,7 +243,7 @@ void runChunkPacketParserTests(TestStats &stats) {
         const std::string key =
             "0123456789abcdef0123456789abcdef-secure-test-key";
         auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 0, 1, 0,
-                                  100, "abc123", {'x'});
+                                  100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x'});
         auto encrypted = SecurePacket::EncryptPacket(packet, key);
         encrypted.back() ^= 0x01;
 
@@ -269,6 +269,59 @@ void runChunkPacketParserTests(TestStats &stats) {
                 "Encrypted control message should use secure packet envelope");
         require(SecurePacket::DecryptControlMessage(encrypted, key) == message,
                 "Decrypted control message should match plaintext");
+      },
+      stats);
+
+  runTest(
+      "ChunkPacketParser rejects hash with invalid hex characters",
+      [&]() {
+        // 64 chars but 'G' at position 0 is not lowercase hex.
+        const std::string badHash =
+            "G123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        const auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 0,
+                                        1, 0, 100, badHash, {'x'});
+        ChunkMetadata chunk;
+        std::string error;
+        const bool ok = ChunkPacketParser::Parse(packet, chunk, &error);
+        require(!ok, "Expected non-hex hash to fail");
+        require(error.find("Invalid hash format") != std::string::npos,
+                "Unexpected error: " + error);
+      },
+      stats);
+
+  runTest(
+      "ChunkPacketParser rejects hash with wrong length",
+      [&]() {
+        // 32 hex chars (SHA-1 length), not 64 (SHA-256).
+        const std::string shortHash = "0123456789abcdef0123456789abcdef";
+        const auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 0,
+                                        1, 0, 100, shortHash, {'x'});
+        ChunkMetadata chunk;
+        std::string error;
+        const bool ok = ChunkPacketParser::Parse(packet, chunk, &error);
+        require(!ok, "Expected wrong-length hash to fail");
+        require(error.find("Invalid hash length") != std::string::npos,
+                "Unexpected error: " + error);
+      },
+      stats);
+
+  runTest(
+      "ChunkMetadata::getFilenameW round-trips UTF-8 multi-byte filename",
+      [&]() {
+        // "café.bin" in UTF-8: c a f 0xC3 0xA9 . b i n
+        const std::string utf8Filename = std::string("caf\xC3\xA9.bin");
+        ChunkMetadata chunk;
+        chunk.setFilename(utf8Filename);
+        const std::wstring wide = chunk.getFilenameW();
+#ifdef _WIN32
+        const std::wstring expected = L"café.bin";
+        require(wide == expected,
+                "UTF-8 filename should decode to wide-char U+00E9 (got length " +
+                    std::to_string(wide.size()) + ")");
+#else
+        require(wide.size() == utf8Filename.size(),
+                "Non-Windows wide conversion preserves byte count");
+#endif
       },
       stats);
 }

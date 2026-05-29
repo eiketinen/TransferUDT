@@ -33,6 +33,28 @@ inline std::string wideToUtf8(const std::wstring &value) {
   return std::string(value.begin(), value.end());
 #endif
 }
+
+inline std::wstring utf8ToWide(const std::string &value) {
+#ifdef _WIN32
+  if (value.empty()) {
+    return {};
+  }
+
+  const int wideSize =
+      MultiByteToWideChar(CP_UTF8, 0, value.data(),
+                          static_cast<int>(value.size()), nullptr, 0);
+  if (wideSize <= 0) {
+    return {};
+  }
+
+  std::wstring wide(static_cast<size_t>(wideSize), L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, value.data(),
+                      static_cast<int>(value.size()), wide.data(), wideSize);
+  return wide;
+#else
+  return std::wstring(value.begin(), value.end());
+#endif
+}
 /**
  * @class ChunkMetadata
  * @brief Represents the metadata of a file chunk, containing all information
@@ -135,9 +157,7 @@ public:
    *
    * @return The filename as a wide string.
    */
-  std::wstring getFilenameW() const {
-    return std::wstring(filename_.begin(), filename_.end());
-  }
+  std::wstring getFilenameW() const { return utf8ToWide(filename_); }
 
   /**
    * @brief Gets the current chunk number.
@@ -175,9 +195,7 @@ public:
 
   std::string getDirectory() const { return directory_; }
 
-  std::wstring getDirectoryW() const {
-    return std::wstring(directory_.begin(), directory_.end());
-  }
+  std::wstring getDirectoryW() const { return utf8ToWide(directory_); }
 
   int getChunkSize() const { return chunkSize_; }
   void setChunkSize(int size) { chunkSize_ = size; }

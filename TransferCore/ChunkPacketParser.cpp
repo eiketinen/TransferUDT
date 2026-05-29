@@ -12,7 +12,21 @@ namespace fs = std::filesystem;
 constexpr uint32_t kMaxFilenameLen = 255U;
 constexpr uint32_t kMaxDirectoryLen = 4096U;
 constexpr uint32_t kMaxServerAddressLen = 128U;
-constexpr uint32_t kMaxHashLen = 256U;
+constexpr uint32_t kSha256HexLen = 64U;
+
+bool IsLowerHex(const std::string &value) {
+  if (value.empty()) {
+    return false;
+  }
+  for (unsigned char ch : value) {
+    const bool isDigit = (ch >= '0' && ch <= '9');
+    const bool isLowerHexLetter = (ch >= 'a' && ch <= 'f');
+    if (!isDigit && !isLowerHexLetter) {
+      return false;
+    }
+  }
+  return true;
+}
 
 void SetError(std::string *out, const std::string &message) {
   if (out != nullptr) {
@@ -245,7 +259,7 @@ bool Parse(const std::vector<char> &buffer, ChunkMetadata &chunk,
   if (!ReadUint32(buffer, offset, hashLen, errorMessage, "hashLen")) {
     return false;
   }
-  if (hashLen == 0 || hashLen > kMaxHashLen) {
+  if (hashLen != kSha256HexLen) {
     SetError(errorMessage, "Invalid hash length");
     return false;
   }
@@ -255,6 +269,10 @@ bool Parse(const std::vector<char> &buffer, ChunkMetadata &chunk,
   }
 
   std::string hash(buffer.data() + offset, hashLen);
+  if (!IsLowerHex(hash)) {
+    SetError(errorMessage, "Invalid hash format");
+    return false;
+  }
   chunk.setHash(hash);
   offset += hashLen;
 

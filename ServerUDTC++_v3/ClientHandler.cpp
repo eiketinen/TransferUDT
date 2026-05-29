@@ -61,14 +61,14 @@ ClientHandler::ClientHandler(UDTSOCKET clientSocket, sockaddr_in *clientAddress,
       connectionPreSharedKey(
           ServerConfig::getInstance().getSecurityPreSharedKey()) {
   Logger::getInstance().info("ClientHandler",
-                             "Client handler created for socket {}" +
-                                 connection.getClient());
+                             "Client handler created for socket {}",
+                             connection.getClient());
 }
 
 ClientHandler::~ClientHandler() {
   Logger::getInstance().info("ClientHandler",
-                             "Client handler shutting down for socket {}" +
-                                 connection.getClient());
+                             "Client handler shutting down for socket {}",
+                             connection.getClient());
   connection.close();
 }
 

@@ -115,11 +115,19 @@
       <ProgramDatabaseFile>$(IntDir)$(ProjectName).pdb</ProgramDatabaseFile>
     </Link>
     <PostBuildEvent>
-      <Command>REM Copia as DLLs do vcpkg que sao colocadas ao lado do EXE original
-xcopy "$(TargetDir)*.dll" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+      <Command>REM Copia as DLLs do vcpkg apenas quando existirem (triplet estatico normalmente nao gera DLLs)
+if exist "$(TargetDir)*.dll" (
+  "$(SystemRoot)\System32\xcopy.exe" "$(TargetDir)*.dll" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+) else (
+  echo Post-Build: nenhum .dll para copiar de "$(TargetDir)".
+)
 
-REM Copia o arquivo de configuracao da pasta do projeto para a pasta de saida
-xcopy "$(ProjectDir)config.properties" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+REM Copia o arquivo de configuracao apenas quando existir (config.properties e gitignored)
+if exist "$(ProjectDir)config.properties" (
+  "$(SystemRoot)\System32\xcopy.exe" "$(ProjectDir)config.properties" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+) else (
+  echo Post-Build: config.properties ausente; ignorando copia.
+)
 
 echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platform)\$(Configuration)\</Command>
     </PostBuildEvent>
@@ -146,11 +154,19 @@ echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platf
       <ProgramDatabaseFile>$(IntDir)$(ProjectName).pdb</ProgramDatabaseFile>
     </Link>
     <PostBuildEvent>
-      <Command>REM Copia as DLLs do vcpkg que sao colocadas ao lado do EXE original
-xcopy "$(TargetDir)*.dll" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+      <Command>REM Copia as DLLs do vcpkg apenas quando existirem (triplet estatico normalmente nao gera DLLs)
+if exist "$(TargetDir)*.dll" (
+  "$(SystemRoot)\System32\xcopy.exe" "$(TargetDir)*.dll" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+) else (
+  echo Post-Build: nenhum .dll para copiar de "$(TargetDir)".
+)
 
-REM Copia o arquivo de configuracao da pasta do projeto para a pasta de saida
-xcopy "$(ProjectDir)config.properties" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+REM Copia o arquivo de configuracao apenas quando existir (config.properties e gitignored)
+if exist "$(ProjectDir)config.properties" (
+  "$(SystemRoot)\System32\xcopy.exe" "$(ProjectDir)config.properties" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+) else (
+  echo Post-Build: config.properties ausente; ignorando copia.
+)
 
 echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platform)\$(Configuration)\</Command>
     </PostBuildEvent>
@@ -179,11 +195,19 @@ echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platf
       <ProgramDatabaseFile>$(IntDir)$(ProjectName).pdb</ProgramDatabaseFile>
     </Link>
     <PostBuildEvent>
-      <Command>REM Copia as DLLs do vcpkg que sao colocadas ao lado do EXE original
-xcopy "$(TargetDir)*.dll" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+      <Command>REM Copia as DLLs do vcpkg apenas quando existirem (triplet estatico normalmente nao gera DLLs)
+if exist "$(TargetDir)*.dll" (
+  "$(SystemRoot)\System32\xcopy.exe" "$(TargetDir)*.dll" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+) else (
+  echo Post-Build: nenhum .dll para copiar de "$(TargetDir)".
+)
 
-REM Copia o arquivo de configuracao da pasta do projeto para a pasta de saida
-xcopy "$(ProjectDir)config.properties" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+REM Copia o arquivo de configuracao apenas quando existir (config.properties e gitignored)
+if exist "$(ProjectDir)config.properties" (
+  "$(SystemRoot)\System32\xcopy.exe" "$(ProjectDir)config.properties" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+) else (
+  echo Post-Build: config.properties ausente; ignorando copia.
+)
 
 echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platform)\$(Configuration)\</Command>
     </PostBuildEvent>
@@ -210,11 +234,19 @@ echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platf
       <ProgramDatabaseFile>$(IntDir)$(ProjectName).pdb</ProgramDatabaseFile>
     </Link>
     <PostBuildEvent>
-      <Command>REM Copia as DLLs do vcpkg que sao colocadas ao lado do EXE original
-xcopy "$(TargetDir)*.dll" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+      <Command>REM Copia as DLLs do vcpkg apenas quando existirem (triplet estatico normalmente nao gera DLLs)
+if exist "$(TargetDir)*.dll" (
+  "$(SystemRoot)\System32\xcopy.exe" "$(TargetDir)*.dll" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+) else (
+  echo Post-Build: nenhum .dll para copiar de "$(TargetDir)".
+)
 
-REM Copia o arquivo de configuracao da pasta do projeto para a pasta de saida
-xcopy "$(ProjectDir)config.properties" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+REM Copia o arquivo de configuracao apenas quando existir (config.properties e gitignored)
+if exist "$(ProjectDir)config.properties" (
+  "$(SystemRoot)\System32\xcopy.exe" "$(ProjectDir)config.properties" "$(SolutionDir)bin\$(Platform)\$(Configuration)\" /Y /I /D
+) else (
+  echo Post-Build: config.properties ausente; ignorando copia.
+)
 
 echo Post-Build: Arquivos de dependencia copiados para $(SolutionDir)bin\$(Platform)\$(Configuration)\</Command>
     </PostBuildEvent>

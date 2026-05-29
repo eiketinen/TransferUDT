@@ -347,7 +347,7 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
 
         UdtRuntime udt;
         ThreadPool pool(1);
-        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        auto verifier = std::make_unique<ConstantVerifier>("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         auto receiver = std::make_shared<FileReceiver>(db, std::move(verifier),
                                                        config, pool);
 
@@ -397,7 +397,7 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
           const std::vector<char> data(payload.begin(), payload.end());
           auto packet = buildChunkPacket(
               filename, directory, "127.0.0.1:" + std::to_string(port), 0, 1,
-              0, data.size(), "expected-hash", data);
+              0, data.size(), "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", data);
           auto encrypted = SecurePacket::EncryptPacket(
               packet, clientPsk);
           require(SecurePacket::IsEncryptedPacket(encrypted),
@@ -463,7 +463,7 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
 
         UdtRuntime udt;
         ThreadPool pool(1);
-        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        auto verifier = std::make_unique<ConstantVerifier>("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         auto receiver = std::make_shared<FileReceiver>(db, std::move(verifier),
                                                        config, pool);
 
@@ -513,7 +513,7 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
           const std::vector<char> data(payload.begin(), payload.end());
           auto plaintext = buildChunkPacket(
               filename, directory, "127.0.0.1:" + std::to_string(port), 0, 1,
-              0, data.size(), "expected-hash", data);
+              0, data.size(), "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", data);
           require(!SecurePacket::IsEncryptedPacket(plaintext),
                   "Client fixture should send plaintext packet");
           require(sendAll(client.get(), plaintext.data(),
@@ -571,7 +571,7 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
 
         UdtRuntime udt;
         ThreadPool pool(1);
-        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        auto verifier = std::make_unique<ConstantVerifier>("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         auto receiver = std::make_shared<FileReceiver>(db, std::move(verifier),
                                                        config, pool);
 
@@ -660,7 +660,7 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
 
         UdtRuntime udt;
         ThreadPool pool(1);
-        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        auto verifier = std::make_unique<ConstantVerifier>("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         auto receiver = std::make_shared<FileReceiver>(db, std::move(verifier),
                                                        config, pool);
 

@@ -27,6 +27,9 @@ std::string toHex(const unsigned char *data, size_t size) {
 }
 
 bool isLowerHex(const std::string &value) {
+  if (value.empty()) {
+    return false;
+  }
   return std::all_of(value.begin(), value.end(), [](unsigned char c) {
     return std::isdigit(c) || (c >= 'a' && c <= 'f');
   });
