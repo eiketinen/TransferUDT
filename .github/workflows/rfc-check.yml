@@ -1,0 +1,164 @@
+name: RFC Gate
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  rfc-link:
+    name: RFC linkage and status
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Validate RFC reference
+        shell: bash
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+
+          # Exemption: PRs explicitly labelled `no-rfc` (used for docs,
+          # hotfixes, dependency bumps). The reviewer is responsible for
+          # confirming the exemption is legitimate.
+          if echo "$PR_LABELS" | grep -q '"no-rfc"'; then
+            echo "PR carries 'no-rfc' label. RFC gate skipped."
+            echo "Reviewer responsibility: confirm this is a doc-only change,"
+            echo "a hotfix (retro-RFC owed in 7 days), or a dependency bump."
+            exit 0
+          fi
+
+          # Extract every RFC-NNNN reference from the PR body.
+          if [ -z "${PR_BODY:-}" ]; then
+            echo "::error::PR body is empty. Reference at least one RFC (RFC-NNNN) or add the 'no-rfc' label."
+            exit 1
+          fi
+
+          mapfile -t RFC_IDS < <(echo "$PR_BODY" | grep -oE 'RFC-[0-9]{4}' | sort -u || true)
+          if [ "${#RFC_IDS[@]}" -eq 0 ]; then
+            echo "::error::PR body does not reference any RFC. Add 'RFC-NNNN' to the description or apply the 'no-rfc' label."
+            exit 1
+          fi
+
+          echo "Found RFC references: ${RFC_IDS[*]}"
+
+          # Validate each referenced RFC exists and is approved.
+          fail=0
+          for ref in "${RFC_IDS[@]}"; do
+            nnnn="${ref#RFC-}"
+            match=$(find docs/rfcs -maxdepth 1 -type f -name "${nnnn}-*.md" | head -n1 || true)
+            if [ -z "$match" ]; then
+              echo "::error::Referenced ${ref} does not exist under docs/rfcs/${nnnn}-*.md"
+              fail=1
+              continue
+            fi
+
+            # Inspect frontmatter status.
+            status=$(awk '
+              BEGIN { in_fm=0 }
+              /^---[[:space:]]*$/ { in_fm = !in_fm; next }
+              in_fm && /^status:/ {
+                # strip leading "status:" and surrounding whitespace/quotes
+                sub(/^status:[[:space:]]*/, "", $0)
+                gsub(/["[:space:]]/, "", $0)
+                print $0
+                exit
+              }
+            ' "$match")
+
+            if [ -z "$status" ]; then
+              echo "::error::${ref} ($match) has no 'status' field in frontmatter. RFC frontmatter is malformed."
+              fail=1
+              continue
+            fi
+
+            if [ "$status" != "approved" ]; then
+              echo "::error::${ref} ($match) has status '${status}'. Implementation PRs require status 'approved'."
+              fail=1
+              continue
+            fi
+
+            echo "OK: ${ref} -> ${match} (status=approved)"
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+
+  rfc-frontmatter:
+    name: RFC frontmatter shape
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate new/modified RFC frontmatter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Only RFCs touched in this PR are validated, so the workflow
+          # does not break retroactively when the template evolves.
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+
+          mapfile -t changed < <(git diff --name-only "$base" "$head" -- 'docs/rfcs/[0-9][0-9][0-9][0-9]-*.md' || true)
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "No RFC files changed in this PR."
+            exit 0
+          fi
+
+          required=(id title status authors created updated)
+          fail=0
+          for f in "${changed[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "Skipping deleted file: $f"
+              continue
+            fi
+            # Extract the first --- ... --- block.
+            fm=$(awk '
+              BEGIN { in_fm=0; printed=0 }
+              /^---[[:space:]]*$/ {
+                if (in_fm) { exit }
+                in_fm = 1; next
+              }
+              in_fm { print }
+            ' "$f")
+
+            if [ -z "$fm" ]; then
+              echo "::error file=$f::No YAML frontmatter found."
+              fail=1
+              continue
+            fi
+
+            for key in "${required[@]}"; do
+              if ! echo "$fm" | grep -qE "^${key}:"; then
+                echo "::error file=$f::Missing required frontmatter field '${key}'."
+                fail=1
+              fi
+            done
+
+            # status must be one of the allowed values.
+            status=$(echo "$fm" | awk -F: '/^status:/ { gsub(/["[:space:]]/, "", $2); print $2 }')
+            case "$status" in
+              draft|proposed|under-review|approved|rejected|superseded) ;;
+              *) echo "::error file=$f::Invalid status '${status}'."; fail=1 ;;
+            esac
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
