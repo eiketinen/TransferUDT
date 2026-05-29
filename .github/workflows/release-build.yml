@@ -83,6 +83,16 @@ jobs:
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet ${{ steps.triplet.outputs.value }} --x-manifest-root=AgentUDTC++_v7.2
 
+      # The application solutions (AgentUDTC++.sln / ServerUDTC++.sln) build in
+      # vcpkg manifest mode and rely on the vcpkg MSBuild integration to resolve
+      # spdlog/openssl/etc. headers. A clean runner is not integrated, so do it
+      # explicitly (the existing windows-ci.yml only builds the *Tests* vcxproj,
+      # which hardcode their include/lib paths and do not need this).
+      - name: Integrate vcpkg with MSBuild
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" integrate install
+
       # Build the production package for this architecture. Tests are exercised
       # by windows-ci.yml on x64; here we build + package both arches. -RunTests
       # is intentionally omitted because the C++ test projects are x64-only.
