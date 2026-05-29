@@ -23,15 +23,22 @@ jobs:
       - name: Validate RFC reference
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_BODY: ${{ github.event.pull_request.body }}
-          PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: |
           set -euo pipefail
+
+          # Fetch labels live via the API rather than the event payload: a PR
+          # opened with `gh pr create --label` fires the `opened` event before
+          # the label is attached, so the frozen payload can miss it and
+          # falsely fail a legitimately-labelled no-rfc PR.
+          PR_LABELS="$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null || true)"
 
           # Exemption: PRs explicitly labelled `no-rfc` (used for docs,
           # hotfixes, dependency bumps). The reviewer is responsible for
           # confirming the exemption is legitimate.
-          if echo "$PR_LABELS" | grep -q '"no-rfc"'; then
+          if echo "$PR_LABELS" | grep -qx 'no-rfc'; then
             echo "PR carries 'no-rfc' label. RFC gate skipped."
             echo "Reviewer responsibility: confirm this is a doc-only change,"
             echo "a hotfix (retro-RFC owed in 7 days), or a dependency bump."
