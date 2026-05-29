@@ -1,0 +1,118 @@
+name: Release Build (x86 + x64)
+
+# Gate of record for the standing requirement: every functional change must
+# regenerate the production build for BOTH architectures (see CLAUDE.md and
+# docs/dev-workflow.md). Mirrors the dual-arch artifacts under dist/releases/.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".github/ISSUE_TEMPLATE/**"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Should build?
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.decide.outputs.skip }}
+    steps:
+      - id: decide
+        shell: bash
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if echo "${LABELS:-}" | grep -q '"no-build"'; then
+            echo "PR carries 'no-build' label; skipping dual-arch build gate."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  release-build:
+    name: Release ${{ matrix.arch }}
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup .NET 8 (DashboardWeb)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Map architecture to vcpkg triplet
+        id: triplet
+        shell: bash
+        run: |
+          if [ "${{ matrix.arch }}" = "x86" ]; then
+            echo "value=x86-windows-static" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=x64-windows-static" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore vcpkg packages for Server
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet ${{ steps.triplet.outputs.value }} --x-manifest-root=ServerUDTC++_v3
+
+      - name: Restore vcpkg packages for Agent
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet ${{ steps.triplet.outputs.value }} --x-manifest-root=AgentUDTC++_v7.2
+
+      # Build the production package for this architecture. Tests are exercised
+      # by windows-ci.yml on x64; here we build + package both arches. -RunTests
+      # is intentionally omitted because the C++ test projects are x64-only.
+      - name: Build production package (${{ matrix.arch }})
+        shell: pwsh
+        run: |
+          .\scripts\New-TransferUDTRelease.ps1 `
+            -Version 1.0.0 `
+            -Configuration Release `
+            -Architecture ${{ matrix.arch }} `
+            -Build
+
+      - name: Verify release artifacts (${{ matrix.arch }})
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $label = if ("${{ matrix.arch }}" -eq "x86") { "windows-x86" } else { "windows-x64" }
+          $zip = "dist\releases\TransferUDT-1.0.0-$label.zip"
+          $sums = "dist\releases\TransferUDT-1.0.0-$label-SHA256SUMS.txt"
+          foreach ($p in @($zip, $sums)) {
+            if (-not (Test-Path -LiteralPath $p)) {
+              throw "Expected release artifact missing: $p"
+            }
+            Write-Host "OK: $p ($((Get-Item $p).Length) bytes)"
+          }
+
+      - name: Upload artifacts (${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: TransferUDT-1.0.0-windows-${{ matrix.arch }}
+          path: dist/releases/TransferUDT-1.0.0-windows-*
+          if-no-files-found: error
+          retention-days: 7
