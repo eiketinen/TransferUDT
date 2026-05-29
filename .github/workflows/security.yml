@@ -90,11 +90,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Excludes:
+          #   *.vcxproj/.filters  - MSBuild project files
+          #   *.iss               - Inno Setup template builds config from runtime input, not a secret
+          #   security.yml        - this scanner's own regex would self-match
+          # Allowlisted placeholders (documentation examples, not real secrets):
+          #   replace-with-a-strong-shared-secret-of-32-plus-chars (EN)
+          #   *segredo* (PT docs: "segredo-forte...", "segredo...", "segredo por cliente")
+          #   *secure-test-key* / *-test-key (test fixtures)
           if grep -RInE 'BEGIN (RSA|OPENSSH|PRIVATE)|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9_]{36,}|github_pat_|xox[baprs]-|security\.(client_psk\.[^[:space:]=]+|psk)\s*=\s*[^[:space:]#]+' \
             --exclude-dir=.git \
             --exclude='*.vcxproj' \
             --exclude='*.vcxproj.filters' \
-            . | grep -v 'replace-with-a-strong-shared-secret-of-32-plus-chars' | grep -v 'secure-test-key' | grep -v -- '-test-key'; then
+            --exclude='*.iss' \
+            --exclude='security.yml' \
+            . | grep -v 'replace-with-a-strong-shared-secret-of-32-plus-chars' | grep -v 'secure-test-key' | grep -v -- '-test-key' | grep -v 'segredo'; then
             echo "Potential secret material found. Remove it or explicitly tune the scanner."
             exit 1
           fi
