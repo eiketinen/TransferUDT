@@ -16,6 +16,7 @@ The command scaffolds a numbered file from `_template.md`.
 | ID | Title | Status | Authors |
 |---|---|---|---|
 | [0001](0001-multi-agent-workflow.md) | Multi-agent review workflow | approved | claude, codex |
+| [0002](0002-secure-resumable-transfer-sessions.md) | Secure resumable transfer sessions | approved | eiketinen, codex |
 
 ## Status definitions
 
