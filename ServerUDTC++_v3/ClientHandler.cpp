@@ -96,6 +96,18 @@ void ClientHandler::handleClient() {
             SecurityHandshake::LoadCertificateBundleHex(
                 ServerConfig::getInstance()
                     .getSecurityServerCertificatePath())};
+        int serverRemainingDays = 0;
+        const int expiryWarningDays =
+            ServerConfig::getInstance()
+                .getSecurityCertificateExpiryWarningDays();
+        if (expiryWarningDays > 0 &&
+            SecurityHandshake::TryGetCertificateRemainingValidityDays(
+                challenge.serverCertificateHex, serverRemainingDays) &&
+            serverRemainingDays <= expiryWarningDays) {
+          Logger::getInstance().warning(
+              "HandleClient", "Server certificate expires in {} day(s)",
+              serverRemainingDays);
+        }
         if (!connection.sendString(
                 SecurityHandshake::BuildCertificateChallengeMessage(
                     challenge))) {
@@ -124,7 +136,8 @@ void ClientHandler::handleClient() {
 
         if (!SecurityHandshake::VerifyCertificateResponseMessage(
                 challenge, response,
-                ServerConfig::getInstance().getSecurityCaBundlePath())) {
+                ServerConfig::getInstance().getSecurityCaBundlePath(),
+                ServerConfig::getInstance().getSecurityCrlPath())) {
           Logger::getInstance().warning(
               "HandleClient",
               "Certificate authentication failed for client identity '{}'",
@@ -132,6 +145,16 @@ void ClientHandler::handleClient() {
           (void)connection.sendString(SecurityHandshake::kAuthFailed);
           circuitBreaker.reportFailure();
           return;
+        }
+        int clientRemainingDays = 0;
+        if (expiryWarningDays > 0 &&
+            SecurityHandshake::TryGetCertificateRemainingValidityDays(
+                response.clientCertificateHex, clientRemainingDays) &&
+            clientRemainingDays <= expiryWarningDays) {
+          Logger::getInstance().warning(
+              "HandleClient",
+              "Certificate for client identity '{}' expires in {} day(s)",
+              response.clientId, clientRemainingDays);
         }
 
         const std::string okMessage =

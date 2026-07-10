@@ -77,6 +77,8 @@ RadarAgent::RadarAgent(Database &database, IFileIntegrityVerifier &verifier)
       RadarConfig::getInstance().getSecurityServerPublicKeyPath(),
       RadarConfig::getInstance().getSecurityClientCertificatePath(),
       RadarConfig::getInstance().getSecurityCaBundlePath(),
+      RadarConfig::getInstance().getSecurityCrlPath(),
+      RadarConfig::getInstance().getSecurityCertificateExpiryWarningDays(),
       RadarConfig::getInstance().getSecurityServerIdentity(),
       RadarConfig::getInstance().isAdaptiveChunkEnabled(),
       RadarConfig::getInstance().getAdaptiveChunkMinBytes(),

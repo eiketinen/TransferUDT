@@ -43,6 +43,11 @@ void runServerConfigTests(TestStats& stats, const TestEnvironment& env) {
         require(config.isClientIdentityAllowed("agent-one"), "configured per-client PSK identity should be allowed");
         require(!config.isClientIdentityAllowed("agent-two"), "unknown per-client PSK identity should be rejected");
         require(config.getSecurityPreSharedKeyForClient("agent-one") != config.getSecurityPreSharedKey(), "client-specific PSK should override global PSK");
+        require(config.getSecurityRevocationMode() == "off" &&
+                    config.getSecurityCrlPath().empty(),
+                "certificate revocation should default to off without a CRL");
+        require(config.getSecurityCertificateExpiryWarningDays() == 30,
+                "certificate expiry warning should default to 30 days");
         require(config.getChangedFilesServerPolicy() == ServerConfig::ChangedFilesServerPolicy::Overwrite,
                 "Changed-file server policy should load overwrite from test config");
         require(config.getChangedFilesServerPolicyName() == "overwrite",

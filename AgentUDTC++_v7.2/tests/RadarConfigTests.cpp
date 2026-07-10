@@ -67,6 +67,11 @@ void runRadarConfigTests(TestStats &stats, const TestEnvironment &env) {
                 "Changed-file resend should be enabled from config.");
         require(cfg.getChangedFilesIdentity() == "sha256",
                 "Changed-file identity should normalize to sha256.");
+        require(cfg.getSecurityRevocationMode() == "off" &&
+                    cfg.getSecurityCrlPath().empty(),
+                "Certificate revocation should default to off without a CRL.");
+        require(cfg.getSecurityCertificateExpiryWarningDays() == 30,
+                "Certificate expiry warning should default to 30 days.");
 
         const auto &endpoints = cfg.getServerEndpoints();
         require(endpoints.size() == 1,

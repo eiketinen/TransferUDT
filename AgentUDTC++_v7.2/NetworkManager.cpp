@@ -104,7 +104,9 @@ NetworkManager::NetworkManager(
     std::string securityIdentityMode, std::string securityClientPrivateKeyPath,
     std::string securityServerPublicKeyPath,
     std::string securityClientCertificatePath,
-    std::string securityCaBundlePath, std::string securityServerIdentity,
+    std::string securityCaBundlePath, std::string securityCrlPath,
+    int securityCertificateExpiryWarningDays,
+    std::string securityServerIdentity,
     bool adaptiveChunkEnabled, uint64_t adaptiveChunkMinBytes,
     uint64_t adaptiveChunkMaxBytes, uint64_t adaptiveChunkInitialBytes,
     int adaptiveChunkTargetAckMillis)
@@ -130,6 +132,9 @@ NetworkManager::NetworkManager(
       securityClientCertificatePath(
           std::move(securityClientCertificatePath)),
       securityCaBundlePath(std::move(securityCaBundlePath)),
+      securityCrlPath(std::move(securityCrlPath)),
+      securityCertificateExpiryWarningDays(
+          securityCertificateExpiryWarningDays),
       securityServerIdentity(std::move(securityServerIdentity)),
       adaptiveChunkSettings{adaptiveChunkEnabled, adaptiveChunkMinBytes,
                             adaptiveChunkMaxBytes, adaptiveChunkInitialBytes,
@@ -156,6 +161,7 @@ NetworkManager::NetworkManager(
         this->securityClientPrivateKeyPath,
         this->securityServerPublicKeyPath,
         this->securityClientCertificatePath, this->securityCaBundlePath,
+        this->securityCrlPath, this->securityCertificateExpiryWarningDays,
         this->securityServerIdentity, this->securityEnabled);
 
     auto adaptiveChunks =

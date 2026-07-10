@@ -172,6 +172,13 @@ public:
   const std::string &getSecurityCaBundlePath() const {
     return securityCaBundlePath;
   }
+  const std::string &getSecurityRevocationMode() const {
+    return securityRevocationMode;
+  }
+  const std::string &getSecurityCrlPath() const { return securityCrlPath; }
+  int getSecurityCertificateExpiryWarningDays() const {
+    return securityCertificateExpiryWarningDays;
+  }
   const std::string &getSecurityServerIdentity() const {
     return securityServerIdentity;
   }
@@ -237,6 +244,8 @@ private:
   const bool DEFAULT_ALLOW_INSECURE_MODE = false;
   const std::string DEFAULT_SECURITY_PSK = "";
   const std::string DEFAULT_SECURITY_IDENTITY_MODE = "psk";
+  const std::string DEFAULT_SECURITY_REVOCATION_MODE = "off";
+  const int DEFAULT_SECURITY_CERTIFICATE_EXPIRY_WARNING_DAYS = 30;
   const bool DEFAULT_ADAPTIVE_CHUNK_ENABLED = false;
   const int64_t DEFAULT_ADAPTIVE_CHUNK_MIN_KB = 32;
   const int64_t DEFAULT_ADAPTIVE_CHUNK_MAX_KB = 4 * 1024;
@@ -298,6 +307,9 @@ private:
   std::string securityServerPublicKeyPath;
   std::string securityClientCertificatePath;
   std::string securityCaBundlePath;
+  std::string securityRevocationMode;
+  std::string securityCrlPath;
+  int securityCertificateExpiryWarningDays;
   std::string securityServerIdentity;
   bool dashboardEnabled;
   std::string dashboardUrl;

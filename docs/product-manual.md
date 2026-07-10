@@ -200,6 +200,13 @@ Agent e Server com `security.identity.mode=certificate_handshake`. O Agent usa
 o certificado do Server precisa de `serverAuth`. O perfil valida CA e SAN/CN,
 mas nao encapsula UDT em TLS/mTLS.
 
+Para revogacao local, configure nos dois componentes
+`security.revocation.mode=crl` e `security.crl_path`. A CRL e aplicada de forma
+fail-closed em novos handshakes. Certificado, chave, bundle de CA e CRL sao
+recarregados a cada nova conexao; transferencias ja autenticadas continuam.
+Durante rollover, mantenha temporariamente as CAs antiga e nova no mesmo bundle.
+`security.certificate_expiry_warning_days` controla o alerta de vencimento.
+
 ## Configuracao minima do Dashboard
 
 O wizard cria `appsettings.json` em `C:\ProgramData\TransferUDT\Dashboard`.

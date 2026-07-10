@@ -464,6 +464,9 @@ begin
     '# certificate_handshake advanced settings:' + #13#10 +
     '# security.client_certificate_path = C:/ProgramData/TransferUDT/Agent/pki/agent-chain.pem' + #13#10 +
     '# security.ca_bundle_path = C:/ProgramData/TransferUDT/Agent/pki/ca.pem' + #13#10 +
+    '# security.revocation.mode = crl' + #13#10 +
+    '# security.crl_path = C:/ProgramData/TransferUDT/Agent/pki/issuers.crl.pem' + #13#10 +
+    '# security.certificate_expiry_warning_days = 30' + #13#10 +
     '# security.server_identity = transfer-server.example.internal' + #13#10;
 
   if (AgentPage.Values[4] <> '') and (AgentPage.Values[5] <> '') then
@@ -543,7 +546,10 @@ begin
     '# certificate_handshake advanced settings:' + #13#10 +
     '# security.server_private_key_path = C:/ProgramData/TransferUDT/Server/pki/server.key' + #13#10 +
     '# security.server_certificate_path = C:/ProgramData/TransferUDT/Server/pki/server-chain.pem' + #13#10 +
-    '# security.ca_bundle_path = C:/ProgramData/TransferUDT/Server/pki/ca.pem' + #13#10;
+    '# security.ca_bundle_path = C:/ProgramData/TransferUDT/Server/pki/ca.pem' + #13#10 +
+    '# security.revocation.mode = crl' + #13#10 +
+    '# security.crl_path = C:/ProgramData/TransferUDT/Server/pki/issuers.crl.pem' + #13#10 +
+    '# security.certificate_expiry_warning_days = 30' + #13#10;
 
   SaveStringToFile(ConfigPath, Content, False);
 end;

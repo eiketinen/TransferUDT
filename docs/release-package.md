@@ -25,7 +25,7 @@ Conteudo:
 - `SECURITY.md`
 
 O pacote de fonte remove artefatos de build, bancos, logs, executaveis,
-certificados, chaves privadas, `dist`, `.git`, `bin`, `obj`, `vcpkg_installed`
+certificados, CRLs de producao, chaves privadas, `dist`, `.git`, `bin`, `obj`, `vcpkg_installed`
 e arquivos locais de runtime.
 
 Os documentos voltados ao usuario final devem ser publicados em HTML

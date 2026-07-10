@@ -281,7 +281,7 @@ def architecture_page() -> Image.Image:
         ("SQLite local", "Estado de filas, chunks e entregas confirmadas."),
     ]
     core_boxes = [
-        ("SecurityHandshake", "Challenge-response com client_id e HMAC-SHA256."),
+        ("SecurityHandshake", "Challenge-response com PSK, X.509 e CRL opcional."),
         ("SecurePacket", "AES-256-GCM, nonce, tag e metadados autenticados."),
         ("ThreadPool", "Fila com limite para reduzir DoS por conexões pendentes."),
         ("Logger/Config", "Telemetria e parâmetros de segurança compartilhados."),
@@ -301,8 +301,8 @@ def architecture_page() -> Image.Image:
     for i, (title, body) in enumerate(server_boxes):
         box(draw, (x_server, y0 + i * 170, x_server + col_w, y0 + 130 + i * 170), title, body, COLORS["server"], COLORS["server_line"])
 
-    arrow(draw, (x_agent + col_w, 455), (x_core, 455), COLORS["secure_line"], 4, "protocolo")
-    arrow(draw, (x_core + col_w, 455), (x_server, 455), COLORS["secure_line"], 4, "sessão")
+    arrow(draw, (x_agent + col_w, 370), (x_core, 370), COLORS["secure_line"], 4, "protocolo")
+    arrow(draw, (x_core + col_w, 370), (x_server, 370), COLORS["secure_line"], 4, "sessão")
     arrow(draw, (x_server + 155, 900), (x_server + 155, 1035), COLORS["server_line"], 4, "chunks")
 
     draw.text((MARGIN, 970), "Modelo de responsabilidade", font=F["h1"], fill=COLORS["ink"])
@@ -321,7 +321,7 @@ def architecture_page() -> Image.Image:
 
 
 def sequence_page() -> Image.Image:
-    img, draw = page(3, "Fluxo seguro de transferência")
+    img, draw = page(3, "Fluxo seguro de transferência - modo PSK")
     lanes = [
         ("Agente", 180, COLORS["agent_line"]),
         ("Servidor", 620, COLORS["server_line"]),
@@ -390,7 +390,7 @@ def security_page() -> Image.Image:
         MARGIN,
         1235,
         [
-            "A autenticação usa PSK/HMAC, não cadeia de certificados ou mTLS.",
+            "A identidade suporta PSK, chaves assinadas e certificados X.509; o transporte UDT não é TLS/mTLS.",
             "A sessão rejeita replay, troca de sessão e ordem inválida; a idempotência reduz duplicidade operacional.",
             "Parâmetros de quota, allowlist e chaves por cliente precisam ser tratados como configuração de produção.",
         ],
@@ -498,7 +498,7 @@ def validation_page() -> Image.Image:
     draw_wrapped(
         draw,
         (MARGIN, 140),
-        "A validação executada no workspace testou o caminho real de envio e um cenário negativo de quota. Os resultados abaixo resumem o comportamento observado depois das melhorias.",
+        "A validação executada no workspace cobriu o caminho real de envio, autenticação X.509, recuperação, replay e cenários negativos. Os resultados abaixo resumem o comportamento observado depois das melhorias.",
         F["body"],
         COLORS["ink"],
         PAGE_W - 2 * MARGIN,
@@ -529,7 +529,7 @@ def validation_page() -> Image.Image:
         draw,
         (MARGIN, 830, PAGE_W - MARGIN, 1050),
         "Testes de unidade e build",
-        "Server: 25/25 testes. Agent: 27/27 testes. Builds Debug de Agent e Server executados com sucesso.",
+        "Server: 44/44 testes. Agent: 36/36 testes. E2E de produção: 14/14 cenários. Builds de Agent e Server executados com sucesso.",
         COLORS["server"],
         COLORS["server_line"],
         F["h2"],

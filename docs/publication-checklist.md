@@ -8,7 +8,7 @@ Before creating the public GitHub repository:
 - Confirm no real `config.properties` files are staged.
 - Confirm no databases, logs, binaries, `vcpkg_installed`, `.vs`, or `.user` files are staged.
 - Confirm no real `security.psk`, `security.client_psk.<client_id>`, private key,
-  certificate bundle, database, or production path is staged.
+  certificate bundle, production CRL, database, or production path is staged.
 - Confirm CodeQL, dependency review, secret pattern scan, and Windows CI pass.
 - Confirm public examples keep secure mode enabled and use only placeholder
   secrets.

@@ -206,8 +206,21 @@ using var server = CreateLeaf(args[1], serverKey, ca, true);
 using var clientKey = RSA.Create(3072);
 using var client = CreateLeaf(args[2], clientKey, ca, false);
 
+var cleanCrlBuilder = new CertificateRevocationListBuilder();
+var cleanCrl = cleanCrlBuilder.Build(
+    ca, 1, DateTimeOffset.UtcNow.AddDays(1), HashAlgorithmName.SHA256,
+    RSASignaturePadding.Pkcs1, DateTimeOffset.UtcNow.AddMinutes(-5));
+var revokedClientCrlBuilder = new CertificateRevocationListBuilder();
+revokedClientCrlBuilder.AddEntry(client, DateTimeOffset.UtcNow.AddMinutes(-1),
+                                 X509RevocationReason.KeyCompromise);
+var revokedClientCrl = revokedClientCrlBuilder.Build(
+    ca, 2, DateTimeOffset.UtcNow.AddDays(1), HashAlgorithmName.SHA256,
+    RSASignaturePadding.Pkcs1, DateTimeOffset.UtcNow.AddMinutes(-5));
+
 WritePem(Path.Combine(args[0], "ca.pem"), "CERTIFICATE", ca.Export(X509ContentType.Cert));
 WritePem(Path.Combine(args[0], "wrong-ca.pem"), "CERTIFICATE", wrongCa.Export(X509ContentType.Cert));
+WritePem(Path.Combine(args[0], "clean.crl.pem"), "X509 CRL", cleanCrl);
+WritePem(Path.Combine(args[0], "revoked-agent.crl.pem"), "X509 CRL", revokedClientCrl);
 WritePem(Path.Combine(args[0], "server.key"), "PRIVATE KEY", serverKey.ExportPkcs8PrivateKey());
 WritePem(Path.Combine(args[0], "server.pem"), "CERTIFICATE", server.Export(X509ContentType.Cert));
 WritePem(Path.Combine(args[0], "agent.key"), "PRIVATE KEY", clientKey.ExportPkcs8PrivateKey());
@@ -573,6 +586,8 @@ function Invoke-E2EScenario($Scenario, [string]$SuiteRoot, [string]$RepoRoot, [s
     $serverCertificate = Join-Path $keysDir "server.pem"
     $agentPrivateKey = Join-Path $keysDir "agent.key"
     $agentCertificate = Join-Path $keysDir "agent.pem"
+    $cleanCrl = Join-Path $keysDir "clean.crl.pem"
+    $revokedAgentCrl = Join-Path $keysDir "revoked-agent.crl.pem"
 
     $serverConfig = Join-Path $scenarioRoot "server.properties"
     $agentConfig = Join-Path $scenarioRoot "agent.properties"
@@ -604,6 +619,7 @@ function Invoke-E2EScenario($Scenario, [string]$SuiteRoot, [string]$RepoRoot, [s
     $serverMaxFileSizeMb = if ($Scenario.ServerMaxFileSizeMb) { [int]$Scenario.ServerMaxFileSizeMb } else { 512 }
     $serverAllowedClientId = if ($Scenario.ServerAllowedClientId) { [string]$Scenario.ServerAllowedClientId } else { $safeClientId }
     $agentCaBundlePath = if ($Scenario.UseWrongCaBundle) { $wrongCaBundle } else { $caBundle }
+    $serverCrlPath = if ($Scenario.UseRevokedClientCrl) { $revokedAgentCrl } else { $cleanCrl }
 
     @"
 server.port = $port
@@ -641,6 +657,9 @@ security.allowed_client_ids = $serverAllowedClientId
 security.server_private_key_path = $(Convert-ToConfigPath $serverPrivateKey)
 security.server_certificate_path = $(Convert-ToConfigPath $serverCertificate)
 security.ca_bundle_path = $(Convert-ToConfigPath $caBundle)
+security.revocation.mode = crl
+security.crl_path = $(Convert-ToConfigPath $serverCrlPath)
+security.certificate_expiry_warning_days = 30
 "@ | Set-Content -Path $serverConfig -Encoding ASCII
 
     @"
@@ -694,6 +713,9 @@ security.client_id = $safeClientId
 security.client_private_key_path = $(Convert-ToConfigPath $agentPrivateKey)
 security.client_certificate_path = $(Convert-ToConfigPath $agentCertificate)
 security.ca_bundle_path = $(Convert-ToConfigPath $agentCaBundlePath)
+security.revocation.mode = crl
+security.crl_path = $(Convert-ToConfigPath $cleanCrl)
+security.certificate_expiry_warning_days = 30
 security.server_identity = $serverIdentity
 "@ | Set-Content -Path $agentConfig -Encoding ASCII
 
@@ -1135,6 +1157,18 @@ $scenarios = @(
         RequireAdaptiveVariation = $false
     },
     [pscustomobject]@{
+        Name = "revoked-client-rejected"
+        Description = "Server CRL revokes the Agent certificate before a secure session can be issued."
+        ExpectedOutcome = "auth-reject"
+        PayloadBytes = 64KB
+        ChunkKb = 64
+        AdaptiveEnabled = $false
+        AckPattern = @()
+        UseRevokedClientCrl = $true
+        TimeoutSeconds = 60
+        RequireAdaptiveVariation = $false
+    },
+    [pscustomobject]@{
         Name = "wrong-server-ca-rejected"
         Description = "Agent trusts the wrong CA bundle and must reject the Server certificate."
         ExpectedOutcome = "server-proof-reject"
@@ -1200,7 +1234,7 @@ $summaryLines.Add("")
 $summaryLines.Add("## Readiness Assessment")
 $summaryLines.Add("")
 if ($failedCount -eq 0) {
-    $summaryLines.Add("All E2E production-readiness scenarios passed. The build is a candidate for controlled production pilot, subject to operational checks outside this suite: service installer validation, key rotation procedure, monitoring/alerting, disk quota policy, and restore/retry drills.")
+    $summaryLines.Add("All E2E production-readiness scenarios passed. The build is a candidate for controlled production pilot, subject to operational checks outside this suite: service installer validation, certificate/CRL distribution, monitoring/alerting, disk quota policy, and restore/retry drills.")
 }
 else {
     $summaryLines.Add("One or more scenarios failed. Treat this build as not ready for production until the failed reports are reviewed and remediated.")

@@ -39,6 +39,10 @@ static bool isValidIdentityMode(const std::string& value) {
            value == "certificate_handshake";
 }
 
+static bool isValidRevocationMode(const std::string& value) {
+    return value == "off" || value == "crl";
+}
+
 static std::string normalizeLower(std::string value) {
     std::transform(
         value.begin(), value.end(), value.begin(),
@@ -364,6 +368,26 @@ ServerConfig::ServerConfig() {
         [](const std::string&) { return true; }
     );
 
+    securityRevocationMode = ServerConfig::loadConfigParam<std::string>(
+        configMap, "security.revocation.mode", DEFAULT_SECURITY_REVOCATION_MODE,
+        "Security revocation mode must be off or crl",
+        [](const std::string& value) { return isValidRevocationMode(value); }
+    );
+
+    securityCrlPath = ServerConfig::loadConfigParam<std::string>(
+        configMap, "security.crl_path", "",
+        "Security CRL path invalid",
+        [](const std::string&) { return true; }
+    );
+
+    securityCertificateExpiryWarningDays =
+        ServerConfig::loadConfigParam<int>(
+            configMap, "security.certificate_expiry_warning_days",
+            DEFAULT_SECURITY_CERTIFICATE_EXPIRY_WARNING_DAYS,
+            "Security certificate expiry warning days must be between 0 and 3650",
+            [](int value) { return value >= 0 && value <= 3650; }
+        );
+
     static constexpr const char* CLIENT_PSK_PREFIX = "security.client_psk.";
     static constexpr const char* CLIENT_PUBLIC_KEY_PREFIX = "security.client_public_key.";
     for (const auto& entry : configMap) {
@@ -432,6 +456,17 @@ ServerConfig::ServerConfig() {
             throw std::runtime_error(
                 "certificate_handshake requires security.server_private_key_path, security.server_certificate_path, and security.ca_bundle_path.");
         }
+        if (securityRevocationMode == "crl" && securityCrlPath.empty()) {
+            throw std::runtime_error(
+                "security.revocation.mode=crl requires security.crl_path.");
+        }
+        if (securityRevocationMode == "off" && !securityCrlPath.empty()) {
+            throw std::runtime_error(
+                "security.crl_path requires security.revocation.mode=crl.");
+        }
+    } else if (securityRevocationMode != "off" || !securityCrlPath.empty()) {
+        throw std::runtime_error(
+            "Certificate revocation settings require security.identity.mode=certificate_handshake.");
     }
 
     const bool hasGlobalPsk =

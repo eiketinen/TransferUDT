@@ -68,6 +68,9 @@ Causas comuns:
 - Em `certificate_handshake`: CA incorreta, certificado expirado, EKU errado,
   SAN/CN diferente de `client_id`/`server_identity`, chave privada incompatível
   ou relogio do Windows fora de sincronismo.
+- Em `security.revocation.mode=crl`: CRL ausente, maior que 4 MiB, malformada,
+  expirada, assinada por outra CA, sem cobertura para a cadeia ou com o serial
+  do certificado revogado. Atualize a CRL atomicamente e tente nova conexao.
 
 ## Arquivo nao e reconstruido
 

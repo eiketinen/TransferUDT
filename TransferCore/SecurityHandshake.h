@@ -20,6 +20,7 @@ constexpr size_t kChallengeBytes = 32;
 constexpr size_t kX25519KeyBytes = 32;
 constexpr size_t kSessionIdBytes = 16;
 constexpr size_t kMaxCertificateBundleBytes = 24 * 1024;
+constexpr size_t kMaxCrlBundleBytes = 4 * 1024 * 1024;
 
 struct EphemeralKeyPair {
   std::string privateKeyHex;
@@ -121,9 +122,12 @@ std::string LoadCertificateBundleHex(const std::string &certificatePath);
 bool ValidateCertificateBundle(const std::string &certificateHex,
                                const std::string &caBundlePath,
                                const std::string &expectedIdentity,
-                               bool serverCertificate);
+                               bool serverCertificate,
+                               const std::string &crlPath = "");
 bool CertificateMatchesPrivateKey(const std::string &certificateHex,
                                   const std::string &privateKeyPath);
+bool TryGetCertificateRemainingValidityDays(const std::string &certificateHex,
+                                            int &remainingDays);
 
 std::string
 BuildCertificateChallengeMessage(const CertificateChallenge &challenge);
@@ -139,7 +143,8 @@ bool TryParseCertificateResponseMessage(const std::string &message,
                                         CertificateResponse &response);
 bool VerifyCertificateResponseMessage(const CertificateChallenge &challenge,
                                       const CertificateResponse &response,
-                                      const std::string &caBundlePath);
+                                      const std::string &caBundlePath,
+                                      const std::string &crlPath = "");
 std::string BuildCertificateOkMessage(
     const CertificateChallenge &challenge,
     const CertificateResponse &response,
@@ -148,7 +153,8 @@ bool VerifyCertificateOkMessage(
     const CertificateChallenge &challenge,
     const CertificateResponse &response, const std::string &okMessage,
     const std::string &caBundlePath, const std::string &expectedServerIdentity,
-    std::string *serverSignatureHex = nullptr);
+    std::string *serverSignatureHex = nullptr,
+    const std::string &crlPath = "");
 std::string DeriveCertificateSessionSecret(
     const std::string &ownEphemeralPrivateKeyHex,
     const std::string &peerEphemeralPublicKeyHex,

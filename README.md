@@ -29,6 +29,8 @@ Product documentation:
 - Optional per-client PSK binding for authenticated Agent identities.
 - Optional `signed_handshake` raw-key identity and `certificate_handshake`
   mutual X.509 identity with CA, EKU, and SAN/CN validation.
+- Optional fail-closed CRL revocation, CA rollover, certificate hot reload, and
+  expiration warnings for `certificate_handshake` deployments.
 - Rejection of plaintext packets when secure transfer is enabled.
 - Server-side limits for queued work, logical file size, and per-client storage.
 - Duplicate successful chunks are ignored without decrementing completion counters.

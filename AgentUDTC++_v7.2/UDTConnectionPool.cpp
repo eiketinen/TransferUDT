@@ -134,6 +134,8 @@ UDTConnectionPool::UDTConnectionPool(
     const std::string& securityServerPublicKeyPath,
     const std::string& securityClientCertificatePath,
     const std::string& securityCaBundlePath,
+    const std::string& securityCrlPath,
+    int securityCertificateExpiryWarningDays,
     const std::string& securityServerIdentity,
     bool securityEnabled)
     : serverHost_(host),
@@ -163,6 +165,9 @@ UDTConnectionPool::UDTConnectionPool(
     securityServerPublicKeyPath_(securityServerPublicKeyPath),
     securityClientCertificatePath_(securityClientCertificatePath),
     securityCaBundlePath_(securityCaBundlePath),
+    securityCrlPath_(securityCrlPath),
+    securityCertificateExpiryWarningDays_(
+        securityCertificateExpiryWarningDays),
     securityServerIdentity_(securityServerIdentity)
 {
     if (max_size_ == 0) max_size_ = 1; // Ensure at least 1 connection
@@ -253,9 +258,22 @@ std::shared_ptr<UDTConnection> UDTConnectionPool::_createConnection() {
                         if (!SecurityHandshake::ValidateCertificateBundle(
                                 challenge.serverCertificateHex,
                                 securityCaBundlePath_, expectedServerIdentity,
-                                true)) {
+                                true, securityCrlPath_)) {
                             throw std::runtime_error(
                                 "Server certificate chain or identity is invalid.");
+                        }
+                        int serverRemainingDays = 0;
+                        if (securityCertificateExpiryWarningDays_ > 0 &&
+                            SecurityHandshake::TryGetCertificateRemainingValidityDays(
+                                challenge.serverCertificateHex,
+                                serverRemainingDays) &&
+                            serverRemainingDays <=
+                                securityCertificateExpiryWarningDays_) {
+                            Logger::getInstance().warning(
+                                "UDTConnectionPool::_createConnection",
+                                "Server certificate expires in " +
+                                    std::to_string(serverRemainingDays) +
+                                    " day(s).");
                         }
 
                         const auto clientEphemeral =
@@ -274,6 +292,19 @@ std::shared_ptr<UDTConnection> UDTConnectionPool::_createConnection() {
                             throw std::runtime_error(
                                 "Failed to send certificate authentication response.");
                         }
+                        int clientRemainingDays = 0;
+                        if (securityCertificateExpiryWarningDays_ > 0 &&
+                            SecurityHandshake::TryGetCertificateRemainingValidityDays(
+                                parsedResponse.clientCertificateHex,
+                                clientRemainingDays) &&
+                            clientRemainingDays <=
+                                securityCertificateExpiryWarningDays_) {
+                            Logger::getInstance().warning(
+                                "UDTConnectionPool::_createConnection",
+                                "Agent certificate expires in " +
+                                    std::to_string(clientRemainingDays) +
+                                    " day(s).");
+                        }
 
                         if (!connection->recvString(response) ||
                             response == SecurityHandshake::kAuthFailed) {
@@ -285,7 +316,7 @@ std::shared_ptr<UDTConnection> UDTConnectionPool::_createConnection() {
                         if (!SecurityHandshake::VerifyCertificateOkMessage(
                                 challenge, parsedResponse, response,
                                 securityCaBundlePath_, expectedServerIdentity,
-                                &serverSignature)) {
+                                &serverSignature, securityCrlPath_)) {
                             throw std::runtime_error(
                                 "Server certificate proof verification failed.");
                         }

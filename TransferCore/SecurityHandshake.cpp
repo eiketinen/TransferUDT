@@ -225,10 +225,52 @@ bool certificateIdentityMatches(X509 *certificate,
                          expectedIdentity.size(), 0, nullptr) == 1;
 }
 
+bool loadCrlBundle(X509_STORE *store, const std::string &crlPath) {
+  if (store == nullptr || crlPath.empty()) {
+    return false;
+  }
+
+  std::ifstream input(crlPath, std::ios::binary);
+  if (!input) {
+    return false;
+  }
+  std::vector<unsigned char> bytes(
+      (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  if (bytes.empty() || bytes.size() > SecurityHandshake::kMaxCrlBundleBytes) {
+    return false;
+  }
+
+  BioPtr bio(BIO_new_mem_buf(bytes.data(), static_cast<int>(bytes.size())),
+             BIO_free);
+  if (!bio) {
+    return false;
+  }
+
+  bool loaded = false;
+  while (true) {
+    X509_CRL *crl = PEM_read_bio_X509_CRL(bio.get(), nullptr, nullptr, nullptr);
+    if (crl == nullptr) {
+      ERR_clear_error();
+      break;
+    }
+    const int added = X509_STORE_add_crl(store, crl);
+    X509_CRL_free(crl);
+    if (added != 1) {
+      return false;
+    }
+    loaded = true;
+  }
+
+  return loaded &&
+         X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK |
+                                         X509_V_FLAG_CRL_CHECK_ALL) == 1;
+}
+
 bool validateCertificateBundle(const std::string &certificateHex,
                                const std::string &caBundlePath,
                                const std::string &expectedIdentity,
-                               bool serverCertificate) {
+                               bool serverCertificate,
+                               const std::string &crlPath) {
   if (caBundlePath.empty() || expectedIdentity.empty()) {
     return false;
   }
@@ -238,6 +280,7 @@ bool validateCertificateBundle(const std::string &certificateHex,
   if (!store || !context ||
       X509_STORE_load_locations(store.get(), caBundlePath.c_str(), nullptr) !=
           1 ||
+      (!crlPath.empty() && !loadCrlBundle(store.get(), crlPath)) ||
       X509_STORE_CTX_init(context.get(), store.get(), bundle.leaf.get(),
                           bundle.intermediates.get()) != 1) {
     return false;
@@ -891,10 +934,12 @@ std::string LoadCertificateBundleHex(const std::string &certificatePath) {
 bool ValidateCertificateBundle(const std::string &certificateHex,
                                const std::string &caBundlePath,
                                const std::string &expectedIdentity,
-                               bool serverCertificate) {
+                               bool serverCertificate,
+                               const std::string &crlPath) {
   try {
     return validateCertificateBundle(certificateHex, caBundlePath,
-                                     expectedIdentity, serverCertificate);
+                                     expectedIdentity, serverCertificate,
+                                     crlPath);
   } catch (const std::exception &) {
     return false;
   }
@@ -904,6 +949,23 @@ bool CertificateMatchesPrivateKey(const std::string &certificateHex,
                                   const std::string &privateKeyPath) {
   try {
     return certificateMatchesPrivateKey(certificateHex, privateKeyPath);
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
+bool TryGetCertificateRemainingValidityDays(const std::string &certificateHex,
+                                            int &remainingDays) {
+  try {
+    auto bundle = parseCertificateBundle(certificateHex);
+    int days = 0;
+    int seconds = 0;
+    if (ASN1_TIME_diff(&days, &seconds, nullptr,
+                       X509_get0_notAfter(bundle.leaf.get())) != 1) {
+      return false;
+    }
+    remainingDays = days;
+    return true;
   } catch (const std::exception &) {
     return false;
   }
@@ -986,12 +1048,13 @@ bool TryParseCertificateResponseMessage(const std::string &message,
 
 bool VerifyCertificateResponseMessage(const CertificateChallenge &challenge,
                                       const CertificateResponse &response,
-                                      const std::string &caBundlePath) {
+                                      const std::string &caBundlePath,
+                                      const std::string &crlPath) {
   try {
     validateCertificateChallenge(challenge);
     validateCertificateResponse(response);
     if (!validateCertificateBundle(response.clientCertificateHex, caBundlePath,
-                                   response.clientId, false)) {
+                                   response.clientId, false, crlPath)) {
       return false;
     }
     return verifyCertificateSignatureHex(
@@ -1025,7 +1088,7 @@ bool VerifyCertificateOkMessage(
     const CertificateChallenge &challenge,
     const CertificateResponse &response, const std::string &okMessage,
     const std::string &caBundlePath, const std::string &expectedServerIdentity,
-    std::string *serverSignatureHex) {
+    std::string *serverSignatureHex, const std::string &crlPath) {
   const std::string prefix(kCertificateOkPrefix);
   if (okMessage.rfind(prefix, 0) != 0) {
     return false;
@@ -1034,7 +1097,7 @@ bool VerifyCertificateOkMessage(
     validateCertificateChallenge(challenge);
     validateCertificateResponse(response);
     if (!validateCertificateBundle(challenge.serverCertificateHex, caBundlePath,
-                                   expectedServerIdentity, true)) {
+                                   expectedServerIdentity, true, crlPath)) {
       return false;
     }
     const std::string signatureHex = okMessage.substr(prefix.size());

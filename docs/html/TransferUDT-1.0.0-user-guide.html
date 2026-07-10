@@ -459,8 +459,12 @@ security.client_psk.agent-001 = use-um-segredo-forte-com-32-ou-mais-caracteres</
         Server; o Server valida CA, EKU <code>clientAuth</code>, SAN/CN e
         allowlist do Agent. Configure os caminhos de chave privada, certificado
         PEM e CA descritos na referencia. Esse perfil protege o handshake do
-        protocolo UDT, mas nao e transporte TLS/mTLS e ainda nao automatiza
-        revogacao ou renovacao.</p>
+        protocolo UDT, mas nao e transporte TLS/mTLS. Para revogacao local,
+        configure <code>security.revocation.mode=crl</code> e o bundle indicado
+        por <code>security.crl_path</code>. O material criptografico e recarregado
+        em novos handshakes, permitindo rollover com CAs sobrepostas sem encerrar
+        transferencias ativas. Download de CRL, OCSP e renovacao automatica
+        continuam externos.</p>
 
         <h3>Dashboard minimo</h3>
         <div class="code-block">

@@ -48,6 +48,7 @@ config.properties
 *.local.properties
 *.secret*
 *.pem
+*.crl
 *.key
 *.pfx
 *.p12

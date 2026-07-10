@@ -114,7 +114,7 @@ function Test-SourceFileExcluded {
 
     $excludedExtensions = @(
         ".exe", ".dll", ".lib", ".exp", ".pdb", ".ilk", ".obj", ".idb",
-        ".tlog", ".recipe", ".log", ".db", ".sqlite", ".sqlite3", ".pem",
+        ".tlog", ".recipe", ".log", ".db", ".sqlite", ".sqlite3", ".pem", ".crl",
         ".key", ".pfx", ".p12", ".resolved"
     )
     if ($excludedExtensions -contains $File.Extension.ToLowerInvariant()) {
@@ -200,7 +200,7 @@ function Assert-SourceArchiveClean {
     )
     $excludedExtensions = @(
         ".exe", ".dll", ".lib", ".exp", ".pdb", ".ilk", ".obj", ".idb",
-        ".tlog", ".recipe", ".log", ".db", ".sqlite", ".sqlite3", ".pem",
+        ".tlog", ".recipe", ".log", ".db", ".sqlite", ".sqlite3", ".pem", ".crl",
         ".key", ".pfx", ".p12", ".resolved"
     )
 

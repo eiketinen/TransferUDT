@@ -28,6 +28,8 @@ documentacao operacional.
 - Suporte a identidade por `signed_handshake`.
 - Suporte opcional a identidade mutua X.509 por `certificate_handshake`, com
   validacao de CA, EKU, SAN/CN e prova de posse da chave privada.
+- Revogacao fail-closed por CRL PEM, rollover com CAs sobrepostas, recarga de
+  material criptografico por handshake e alertas de expiracao configuraveis.
 - Heartbeat do Agent para Dashboard.
 
 ## Validacao esperada para release
@@ -36,9 +38,9 @@ documentacao operacional.
 - Publish self-contained win-x64 do Dashboard.
 - Geracao do wizard Inno Setup.
 - Agent tests: 36/36.
-- Server tests: 43/43.
-- E2E de producao: 13/13 cenarios com handshake X.509, incluindo reinicio do
-  Agent durante transferencia, rejeicao de CA incorreta e validacao SHA-256.
+- Server tests: 44/44.
+- E2E de producao: 14/14 cenarios com handshake X.509 e CRL, incluindo reinicio
+  do Agent durante transferencia, certificado revogado, CA incorreta e SHA-256.
 - SHA256 publicado para o instalador e para o pacote final.
 
 ## Observacoes de seguranca

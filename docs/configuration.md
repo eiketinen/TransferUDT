@@ -81,7 +81,10 @@ security.identity.mode = certificate_handshake
 security.client_id = agent-default
 security.client_private_key_path = C:/ProgramData/TransferUDT/Agent/pki/agent-default.key
 security.client_certificate_path = C:/ProgramData/TransferUDT/Agent/pki/agent-default-chain.pem
-security.ca_bundle_path = C:/ProgramData/TransferUDT/Agent/pki/ca.pem
+security.ca_bundle_path = C:/ProgramData/TransferUDT/Agent/pki/ca-rollover.pem
+security.revocation.mode = crl
+security.crl_path = C:/ProgramData/TransferUDT/Agent/pki/issuers.crl.pem
+security.certificate_expiry_warning_days = 30
 security.server_identity = transfer-server.example.internal
 ```
 
@@ -92,15 +95,21 @@ security.identity.mode = certificate_handshake
 security.allowed_client_ids = agent-default
 security.server_private_key_path = C:/ProgramData/TransferUDT/Server/pki/server.key
 security.server_certificate_path = C:/ProgramData/TransferUDT/Server/pki/server-chain.pem
-security.ca_bundle_path = C:/ProgramData/TransferUDT/Server/pki/ca.pem
+security.ca_bundle_path = C:/ProgramData/TransferUDT/Server/pki/ca-rollover.pem
+security.revocation.mode = crl
+security.crl_path = C:/ProgramData/TransferUDT/Server/pki/issuers.crl.pem
+security.certificate_expiry_warning_days = 30
 ```
 
 The first PEM certificate in each transmitted bundle is the peer leaf; later
 certificates are intermediates. The bundle is limited to 24 KiB. Leaf EKU must
-be `serverAuth` or `clientAuth` for its role. Keep Windows time synchronized,
-stage files with service-account read ACLs, and restart both peers after a mode
-change. OCSP/CRL retrieval and automated enrollment or rotation are not yet
-implemented.
+be `serverAuth` or `clientAuth` for its role. `security.revocation.mode` accepts
+`off` (default) or `crl`; CRL mode is fail-closed and requires a local PEM file
+up to 4 MiB. CA bundles may contain old and new roots during rollover. The
+certificate, key, CA, and CRL are reloaded for each new handshake, while active
+sessions continue with their existing session key. Keep Windows time
+synchronized and stage files with service-account read ACLs. OCSP download and
+automatic enrollment remain outside the application.
 
 ## Adaptive Chunk Sizing
 

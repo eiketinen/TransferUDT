@@ -13,6 +13,8 @@
 - Certificate identity mode validates CA chains, certificate validity, role EKU,
   and SAN/CN peer identities, proves private-key possession, and derives a
   domain-separated ephemeral X25519 session secret.
+- Optional local PEM CRL checking fails closed for revoked certificates and
+  unreadable or invalid configured CRLs.
 - Optional authenticated `security.client_id` allowlisting.
 - Server-side `security.client_psk.<client_id>` entries bind each configured
   client identity to its own PSK.
@@ -40,6 +42,9 @@
 - For `security.identity.mode=certificate_handshake`, issue separate
   `clientAuth` and `serverAuth` leaf certificates from an internal CA. Keep
   private keys local, install the CA bundle on both peers, and synchronize time.
+- Enable `security.revocation.mode=crl` with a current CRL bundle. During CA
+  rollover, stage old and new trust anchors and their applicable CRLs before
+  replacing leaf certificates.
 - Restrict configuration file ACLs to Administrators and the service identity.
 - Rotate PSKs after suspected compromise.
 - Restrict Server network exposure with firewall rules.
@@ -48,8 +53,9 @@
 
 ## Limitations
 
-- Certificate revocation retrieval, enrollment, renewal, and rotation remain
-  manual operational responsibilities.
+- CRL download, enrollment, renewal distribution, and rollover orchestration
+  remain manual operational responsibilities. Only local CRL enforcement and
+  per-handshake file reload are implemented.
 - mTLS is not implemented.
 - Replay resistance is scoped to the lifetime of the authenticated session.
   Application-level chunk idempotency remains as a second defense against
@@ -61,9 +67,12 @@
 
 The `certificate_handshake` profile provides certificate-chain identity and
 ephemeral session keys inside the TransferUDT protocol. It is not mTLS: UDT is
-not wrapped in TLS/DTLS records, and online revocation is not implemented. Use
-network segmentation and firewall policy in addition to this profile; require a
-separate TLS gateway if policy mandates standardized mTLS transport.
+not wrapped in TLS/DTLS records. Local CRL validation is supported, but CRL
+download and OCSP are not. Certificate, key, CA, and CRL files are loaded on
+each new handshake so atomic replacement affects new connections without
+terminating active sessions. Use network segmentation and firewall policy in
+addition to this profile; require a separate TLS gateway if policy mandates
+standardized mTLS transport.
 
 ## Signed Handshake Key Setup
 

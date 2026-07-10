@@ -71,6 +71,8 @@ public:
         std::string securityServerPublicKeyPath = "",
         std::string securityClientCertificatePath = "",
         std::string securityCaBundlePath = "",
+        std::string securityCrlPath = "",
+        int securityCertificateExpiryWarningDays = 30,
         std::string securityServerIdentity = "",
         bool adaptiveChunkEnabled = false,
         uint64_t adaptiveChunkMinBytes = 32ULL * 1024ULL,
@@ -125,6 +127,8 @@ private:
     std::string securityServerPublicKeyPath;
     std::string securityClientCertificatePath;
     std::string securityCaBundlePath;
+    std::string securityCrlPath;
+    int securityCertificateExpiryWarningDays;
     std::string securityServerIdentity;
     AdaptiveChunkController::Settings adaptiveChunkSettings;
 

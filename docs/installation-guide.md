@@ -14,6 +14,8 @@ Defina antes de instalar:
 - `client_id` de cada Agent.
 - PSK forte, par de chaves para `signed_handshake`, ou PKI interna com
   certificados `clientAuth`/`serverAuth` para `certificate_handshake`.
+- Bundle PEM de CRLs e politica de renovacao/rollover quando a revogacao local
+  estiver habilitada.
 - Certificado `.pfx` HTTPS do Dashboard para producao.
 
 ## 2. Instalar Server

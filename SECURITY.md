@@ -18,7 +18,7 @@ Never commit:
 
 - real `security.psk` values;
 - real `security.client_psk.<client_id>` values;
-- private keys or certificate bundles;
+- private keys, certificate bundles, or production CRLs;
 - production `config.properties`;
 - runtime databases;
 - logs containing hostnames, paths, user names, or transfer metadata.
@@ -39,7 +39,9 @@ TransferUDT currently supports:
 Known limitations:
 
 - PSK distribution and rotation are manual.
-- Certificate enrollment, renewal, and revocation remain manual.
+- Certificate enrollment and renewal distribution remain manual. Local PEM CRL
+  enforcement and certificate/CA hot rotation are available when explicitly
+  configured.
 - mTLS is not implemented.
 
 Recommended production hardening:
@@ -51,3 +53,5 @@ Recommended production hardening:
 - use `certificate_handshake` with an internal CA for higher-assurance private
   deployments; add a standardized mTLS gateway if required before internet
   exposure.
+- enable `security.revocation.mode=crl`, monitor CRL freshness and certificate
+  expiry warnings, and stage overlapping CA bundles during issuer rollover.

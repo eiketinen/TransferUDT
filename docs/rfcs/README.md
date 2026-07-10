@@ -18,6 +18,7 @@ The command scaffolds a numbered file from `_template.md`.
 | [0001](0001-multi-agent-workflow.md) | Multi-agent review workflow | approved | claude, codex |
 | [0002](0002-secure-resumable-transfer-sessions.md) | Secure resumable transfer sessions | approved | eiketinen, codex |
 | [0003](0003-certificate-backed-handshake.md) | Certificate-backed mutual authentication | approved | eiketinen, codex |
+| [0004](0004-certificate-lifecycle-and-revocation.md) | Certificate lifecycle and CRL revocation | approved | eiketinen, codex |
 
 ## Status definitions
 

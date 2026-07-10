@@ -159,6 +159,13 @@ public:
   const std::string &getSecurityCaBundlePath() const {
     return securityCaBundlePath;
   }
+  const std::string &getSecurityRevocationMode() const {
+    return securityRevocationMode;
+  }
+  const std::string &getSecurityCrlPath() const { return securityCrlPath; }
+  int getSecurityCertificateExpiryWarningDays() const {
+    return securityCertificateExpiryWarningDays;
+  }
   std::string getClientPublicKeyPath(const std::string &clientId) const {
     const auto it = clientPublicKeyPaths.find(clientId);
     if (it == clientPublicKeyPaths.end()) {
@@ -226,6 +233,8 @@ private:
   const bool DEFAULT_ALLOW_INSECURE_MODE = false;
   const std::string DEFAULT_SECURITY_PSK = "";
   const std::string DEFAULT_SECURITY_IDENTITY_MODE = "psk";
+  const std::string DEFAULT_SECURITY_REVOCATION_MODE = "off";
+  const int DEFAULT_SECURITY_CERTIFICATE_EXPIRY_WARNING_DAYS = 30;
   const std::string DEFAULT_CHANGED_FILES_SERVER_POLICY = "overwrite";
 
   // Variáveis de configuração
@@ -261,6 +270,9 @@ private:
   std::string securityServerPrivateKeyPath;
   std::string securityServerCertificatePath;
   std::string securityCaBundlePath;
+  std::string securityRevocationMode;
+  std::string securityCrlPath;
+  int securityCertificateExpiryWarningDays;
   std::map<std::string, std::string> clientPreSharedKeys;
   std::map<std::string, std::string> clientPublicKeyPaths;
   std::vector<std::string> allowedClients;

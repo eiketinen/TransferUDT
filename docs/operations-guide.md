@@ -147,3 +147,16 @@ Dashboard vazio:
 - Evitar `security.allow_insecure=true`.
 - Expor Dashboard apenas em rede administrativa.
 - Auditar alteracoes em configuracoes e chaves.
+
+## Rotacao e revogacao de certificados
+
+1. Adicione a nova CA ao bundle existente em Agent e Server.
+2. Atualize atomicamente o bundle PEM de CRLs para cobrir todas as CAs emissoras.
+3. Substitua certificado e chave privada correspondentes.
+4. Confirme novos handshakes e acompanhe alertas de expiracao.
+5. Remova a CA antiga somente depois da migracao de todos os peers.
+
+Use `security.revocation.mode=crl` e `security.crl_path` nos dois lados. CRL
+ausente, invalida, expirada ou que revogue o peer bloqueia novas conexoes. As
+sessoes ja estabelecidas nao sao encerradas; uma revogacao passa a valer no
+proximo handshake.

@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 namespace {
 using EvpPkeyPtr = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>;
@@ -17,6 +18,7 @@ using EvpPkeyCtxPtr =
     std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)>;
 using BioPtr = std::unique_ptr<BIO, decltype(&BIO_free)>;
 using X509Ptr = std::unique_ptr<X509, decltype(&X509_free)>;
+using X509CrlPtr = std::unique_ptr<X509_CRL, decltype(&X509_CRL_free)>;
 
 EvpPkeyPtr generateRsaKey() {
   EvpPkeyCtxPtr ctx(EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr),
@@ -45,6 +47,23 @@ void writeCertificate(const std::filesystem::path &path, X509 *certificate) {
   require(bio != nullptr, "certificate PEM should open for write");
   require(PEM_write_bio_X509(bio.get(), certificate) == 1,
           "certificate PEM should be written");
+}
+
+void writeCertificateBundle(const std::filesystem::path &path,
+                            const std::vector<X509 *> &certificates) {
+  BioPtr bio(BIO_new_file(path.string().c_str(), "wb"), BIO_free);
+  require(bio != nullptr, "certificate bundle PEM should open for write");
+  for (X509 *certificate : certificates) {
+    require(PEM_write_bio_X509(bio.get(), certificate) == 1,
+            "certificate bundle entry should be written");
+  }
+}
+
+void writeCrl(const std::filesystem::path &path, X509_CRL *crl) {
+  BioPtr bio(BIO_new_file(path.string().c_str(), "wb"), BIO_free);
+  require(bio != nullptr, "CRL PEM should open for write");
+  require(PEM_write_bio_X509_CRL(bio.get(), crl) == 1,
+          "CRL PEM should be written");
 }
 
 void addCertificateExtension(X509 *certificate, X509 *issuer, int nid,
@@ -108,6 +127,52 @@ X509Ptr createCertificate(EVP_PKEY *subjectKey, const std::string &identity,
   require(X509_sign(certificate.get(), issuerKey, EVP_sha256()) > 0,
           "X.509 certificate should be signed");
   return certificate;
+}
+
+X509CrlPtr createCrl(X509 *issuerCertificate, EVP_PKEY *issuerKey,
+                     const std::vector<long> &revokedSerials) {
+  X509CrlPtr crl(X509_CRL_new(), X509_CRL_free);
+  require(crl != nullptr, "CRL should be allocated");
+  require(X509_CRL_set_version(crl.get(), 1) == 1,
+          "CRL version should be set");
+  require(X509_CRL_set_issuer_name(
+              crl.get(), X509_get_subject_name(issuerCertificate)) == 1,
+          "CRL issuer should be set");
+
+  ASN1_TIME *lastUpdate = ASN1_TIME_new();
+  ASN1_TIME *nextUpdate = ASN1_TIME_new();
+  require(lastUpdate != nullptr && nextUpdate != nullptr,
+          "CRL validity times should be allocated");
+  require(X509_gmtime_adj(lastUpdate, -60) != nullptr &&
+              X509_gmtime_adj(nextUpdate, 24 * 60 * 60) != nullptr &&
+              X509_CRL_set1_lastUpdate(crl.get(), lastUpdate) == 1 &&
+              X509_CRL_set1_nextUpdate(crl.get(), nextUpdate) == 1,
+          "CRL validity should be set");
+  ASN1_TIME_free(lastUpdate);
+  ASN1_TIME_free(nextUpdate);
+
+  for (long serial : revokedSerials) {
+    X509_REVOKED *revoked = X509_REVOKED_new();
+    ASN1_INTEGER *serialNumber = ASN1_INTEGER_new();
+    ASN1_TIME *revocationDate = ASN1_TIME_new();
+    require(revoked != nullptr && serialNumber != nullptr &&
+                revocationDate != nullptr,
+            "revoked certificate entry should be allocated");
+    require(ASN1_INTEGER_set(serialNumber, serial) == 1 &&
+                X509_gmtime_adj(revocationDate, -30) != nullptr &&
+                X509_REVOKED_set_serialNumber(revoked, serialNumber) == 1 &&
+                X509_REVOKED_set_revocationDate(revoked, revocationDate) == 1,
+            "revoked certificate entry should be populated");
+    ASN1_INTEGER_free(serialNumber);
+    ASN1_TIME_free(revocationDate);
+    require(X509_CRL_add0_revoked(crl.get(), revoked) == 1,
+            "revoked certificate entry should be added");
+  }
+
+  require(X509_CRL_sort(crl.get()) == 1, "CRL entries should be sorted");
+  require(X509_CRL_sign(crl.get(), issuerKey, EVP_sha256()) > 0,
+          "CRL should be signed");
+  return crl;
 }
 
 void writeRsaKeyPair(const std::filesystem::path &privatePath,
@@ -371,6 +436,117 @@ void runSecurityHandshakeTests(TestStats &stats, const TestEnvironment &env) {
                     "certificate peers should derive the same session secret");
             require(serverSession.size() == 64,
                     "certificate session secret should be 32-byte hex");
+          },
+          stats);
+
+  runTest("SecurityHandshake certificate lifecycle enforces CRL and rotation",
+          [&]() {
+            const auto caBundlePath = env.tempRoot / "lifecycle-ca-bundle.pem";
+            const auto cleanCrlPath = env.tempRoot / "lifecycle-clean.crl";
+            const auto revokedCrlPath = env.tempRoot / "lifecycle-revoked.crl";
+            const auto rotatingServerPath =
+                env.tempRoot / "lifecycle-rotating-server.pem";
+            const auto clientKeyPath = env.tempRoot / "lifecycle-agent.key";
+            const auto clientCertPath = env.tempRoot / "lifecycle-agent.pem";
+
+            auto oldCaKey = generateRsaKey();
+            auto oldCaCert = createCertificate(
+                oldCaKey.get(), "TransferUDT Old CA", nullptr,
+                oldCaKey.get(), 300, true, "");
+            auto newCaKey = generateRsaKey();
+            auto newCaCert = createCertificate(
+                newCaKey.get(), "TransferUDT New CA", nullptr,
+                newCaKey.get(), 301, true, "");
+            writeCertificateBundle(caBundlePath,
+                                   {oldCaCert.get(), newCaCert.get()});
+
+            auto oldServerKey = generateRsaKey();
+            auto oldServerCert = createCertificate(
+                oldServerKey.get(), "transfer-server.test", oldCaCert.get(),
+                oldCaKey.get(), 310, false, "serverAuth");
+            auto newServerKey = generateRsaKey();
+            auto newServerCert = createCertificate(
+                newServerKey.get(), "transfer-server.test", newCaCert.get(),
+                newCaKey.get(), 311, false, "serverAuth");
+
+            writeCertificate(rotatingServerPath, oldServerCert.get());
+            const std::string oldServerHex =
+                SecurityHandshake::LoadCertificateBundleHex(
+                    rotatingServerPath.string());
+            writeCertificate(rotatingServerPath, newServerCert.get());
+            const std::string newServerHex =
+                SecurityHandshake::LoadCertificateBundleHex(
+                    rotatingServerPath.string());
+            require(oldServerHex != newServerHex,
+                    "certificate replacement should be observed on reload");
+            require(SecurityHandshake::ValidateCertificateBundle(
+                        oldServerHex, caBundlePath.string(),
+                        "transfer-server.test", true),
+                    "old CA should remain trusted during rollover");
+            require(SecurityHandshake::ValidateCertificateBundle(
+                        newServerHex, caBundlePath.string(),
+                        "transfer-server.test", true),
+                    "new CA should be trusted during rollover");
+
+            auto clientKey = generateRsaKey();
+            auto clientCert = createCertificate(
+                clientKey.get(), "agent-lifecycle", oldCaCert.get(),
+                oldCaKey.get(), 312, false, "clientAuth");
+            writePrivateKey(clientKeyPath, clientKey.get());
+            writeCertificate(clientCertPath, clientCert.get());
+            const std::string clientCertificateHex =
+                SecurityHandshake::LoadCertificateBundleHex(
+                    clientCertPath.string());
+
+            auto cleanCrl = createCrl(oldCaCert.get(), oldCaKey.get(), {});
+            auto revokedCrl =
+                createCrl(oldCaCert.get(), oldCaKey.get(), {312});
+            writeCrl(cleanCrlPath, cleanCrl.get());
+            writeCrl(revokedCrlPath, revokedCrl.get());
+            require(SecurityHandshake::ValidateCertificateBundle(
+                        clientCertificateHex, caBundlePath.string(),
+                        "agent-lifecycle", false, cleanCrlPath.string()),
+                    "unrevoked certificate should pass CRL validation");
+            require(!SecurityHandshake::ValidateCertificateBundle(
+                        clientCertificateHex, caBundlePath.string(),
+                        "agent-lifecycle", false, revokedCrlPath.string()),
+                    "revoked certificate should fail CRL validation");
+            require(!SecurityHandshake::ValidateCertificateBundle(
+                        clientCertificateHex, caBundlePath.string(),
+                        "agent-lifecycle", false,
+                        (env.tempRoot / "missing.crl").string()),
+                    "configured missing CRL should fail closed");
+
+            const SecurityHandshake::CertificateChallenge challenge{
+                SecurityHandshake::CreateChallenge(),
+                SecurityHandshake::CreateEphemeralKeyPair().publicKeyHex,
+                oldServerHex};
+            const auto clientEphemeral =
+                SecurityHandshake::CreateEphemeralKeyPair();
+            const std::string responseMessage =
+                SecurityHandshake::BuildCertificateResponseMessage(
+                    challenge, "agent-lifecycle",
+                    SecurityHandshake::CreateChallenge(),
+                    clientEphemeral.publicKeyHex, clientCertPath.string(),
+                    clientKeyPath.string());
+            SecurityHandshake::CertificateResponse response;
+            require(SecurityHandshake::TryParseCertificateResponseMessage(
+                        responseMessage, response),
+                    "lifecycle certificate response should parse");
+            require(SecurityHandshake::VerifyCertificateResponseMessage(
+                        challenge, response, caBundlePath.string(),
+                        cleanCrlPath.string()),
+                    "unrevoked handshake response should verify");
+            require(!SecurityHandshake::VerifyCertificateResponseMessage(
+                        challenge, response, caBundlePath.string(),
+                        revokedCrlPath.string()),
+                    "revoked handshake response should be rejected");
+
+            int remainingDays = -1;
+            require(SecurityHandshake::TryGetCertificateRemainingValidityDays(
+                        clientCertificateHex, remainingDays) &&
+                        remainingDays >= 0 && remainingDays <= 1,
+                    "certificate remaining validity should be observable");
           },
           stats);
 
