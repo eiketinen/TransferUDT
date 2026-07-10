@@ -1,4 +1,5 @@
 ﻿#include "FileProcessor.h"
+#include "ChunkPacketParser.h"
 #include "RadarConfig.h"
 #include "WatchedPathMapper.h"
 #include <algorithm>
@@ -212,6 +213,12 @@ bool FileProcessor::processFile(
     file.seekg(0, std::ios::beg);
 
     const auto &config = RadarConfig::getInstance();
+    const std::string transferId =
+        fileVerifier.calculateFileHash(filePath.u8string());
+    if (transferId.size() != ChunkPacketParser::kTransferIdHexLength) {
+      throw std::runtime_error("Error calculating transfer identity: " +
+                               filename);
+    }
     if (config.isChangedFilesResendEnabled()) {
       if (config.getChangedFilesIdentity() != "sha256") {
         throw std::runtime_error("Unsupported changed-file identity: " +
@@ -220,14 +227,8 @@ bool FileProcessor::processFile(
 
       const int64_t lastWriteTime =
           fs::last_write_time(filePath).time_since_epoch().count();
-      const std::string contentHash =
-          fileVerifier.calculateFileHash(filePath.u8string());
-      if (contentHash.empty()) {
-        throw std::runtime_error("Error calculating file hash: " + filename);
-      }
-
       const bool shouldProcess = database.markFileAsProcessingIfChanged(
-          filePath, static_cast<int64_t>(fileSize), lastWriteTime, contentHash);
+          filePath, static_cast<int64_t>(fileSize), lastWriteTime, transferId);
       if (!shouldProcess) {
         Logger::getInstance().info(
             "FileProcessor::processFile",
@@ -252,7 +253,8 @@ bool FileProcessor::processFile(
         fileSize, defaultChunkSize, memoryUsagePercentLimit);
 
     // Process the file
-    return splitFile(file, filePath, fileSize, chunkSize, chunkProcessorFunc);
+    return splitFile(file, filePath, fileSize, chunkSize, transferId,
+                     chunkProcessorFunc);
   } catch (const std::exception &e) {
     Logger::getInstance().error("FileProcessor",
                                 "Exception processing file: " + filename +
@@ -285,7 +287,7 @@ void FileProcessor::setDynamicChunkSizeProvider(
  */
 bool FileProcessor::splitFile(
     std::ifstream &file, const fs::path &filePath, std::streamsize fileSize,
-    DWORDLONG chunkSize,
+    DWORDLONG chunkSize, const std::string &transferId,
     std::function<FileProcessor::ChunkProcessingResult(
         const ChunkMetadata &, const std::vector<char> &, uint64_t, uint64_t)>
         chunkProcessorFunc) {
@@ -376,6 +378,7 @@ bool FileProcessor::splitFile(
       // Create metadata for this chunk.
       ChunkMetadata chunk(filePath.filename(), chunkNumber, totalChunksForPacket,
                           static_cast<int>(bytesRead), hash, filePath, 0);
+      chunk.setTransferId(transferId);
       chunk.setDirectory(relativeDirectory);
       chunk.setChunkOffset(chunkOffset);
       chunk.setTotalFileSize(totalFileSize);
@@ -405,7 +408,8 @@ bool FileProcessor::splitFile(
                                totalChunksForPacket,
                                static_cast<int>(bytesRead),
                                static_cast<int>(bytesRead), hash, filePath,
-                               chunkSent ? "success" : "failed", chunkOffset);
+                               chunkSent ? "success" : "failed", chunkOffset,
+                               transferId);
         } catch (const std::exception &e) {
           Logger::getInstance().critical("FileProcessor::splitFile",
                                          "Error inserting chunk in database: " +

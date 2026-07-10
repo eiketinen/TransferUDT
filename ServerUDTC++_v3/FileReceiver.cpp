@@ -224,6 +224,7 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
   std::string reconKey;
   fs::path reconstructedFilePath;
   bool replaceReconstructedFile = false;
+  bool resetPartialTransfer = false;
   bool versionedSamePathTransfer = false;
 
   auto refreshEffectivePath = [&]() {
@@ -268,6 +269,17 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
   try {
     isReconstructedInDb = database.isFileReconstructed(clDirKey, filename);
     if (isReconstructedInDb) {
+      const std::string completedTransferId =
+          database.getReconstructedTransferId(clDirKey, filename);
+      if (!effectiveChunk.getTransferId().empty() &&
+          completedTransferId == effectiveChunk.getTransferId()) {
+        Logger::getInstance().infoC(
+            "FileReceiver::receiveChunk", filename,
+            "Transfer '{}' for '{}' was already completed. Acknowledging "
+            "idempotent retry.",
+            effectiveChunk.getTransferId(), filename);
+        return ReceiveResult::AlreadyCompleted;
+      }
       if (isFirstChunk) {
         if (samePathPolicy == ServerConfig::ChangedFilesServerPolicy::Reject) {
           Logger::getInstance().warningC(
@@ -303,6 +315,27 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
     }
 
     hasChunkRows = database.getChunkRowCount(clDirKey, filename) > 0;
+    if (hasChunkRows && !effectiveChunk.getTransferId().empty()) {
+      const std::string activeTransferId =
+          database.getActiveTransferId(clDirKey, filename);
+      if (activeTransferId != effectiveChunk.getTransferId()) {
+        if (!isFirstChunk) {
+          Logger::getInstance().warningC(
+              "FileReceiver::receiveChunk", filename,
+              "Rejected chunk {} for new transfer '{}' because the previous "
+              "partial transfer '{}' must be replaced by chunk zero first.",
+              effectiveChunk.getChunkNumber(), effectiveChunk.getTransferId(),
+              activeTransferId);
+          return ReceiveResult::Failed;
+        }
+        resetPartialTransfer = true;
+        Logger::getInstance().infoC(
+            "FileReceiver::receiveChunk", filename,
+            "Replacing interrupted transfer '{}' with new transfer '{}' for "
+            "'{}'.",
+            activeTransferId, effectiveChunk.getTransferId(), filename);
+      }
+    }
     const bool fileExistsOnDisk =
         fs::exists(normalizePathForFs(reconstructedFilePath));
     Logger::getInstance().debugC(
@@ -384,7 +417,9 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
       effectiveChunk.getClientAddress() + "/" + effectiveChunk.getDirectory();
   bool chunkKnownInDb = false;
   try {
-    if (database.isChunkSuccessful(clientDirectory, effectiveChunk.getFilename(),
+    if (!resetPartialTransfer &&
+        database.isChunkSuccessful(clientDirectory,
+                                   effectiveChunk.getFilename(),
                                    effectiveChunk.getChunkNumber())) {
       Logger::getInstance().warningC(
           "FileReceiver::receiveChunk", filename,
@@ -394,9 +429,10 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
       return ReceiveResult::Stored;
     }
 
-    chunkKnownInDb = database.getChunkStatus(clientDirectory,
-                                             effectiveChunk.getFilename(),
-                                             effectiveChunk.getChunkNumber()) != 0;
+    chunkKnownInDb =
+        !resetPartialTransfer &&
+        database.getChunkStatus(clientDirectory, effectiveChunk.getFilename(),
+                                effectiveChunk.getChunkNumber()) != 0;
     if (chunkKnownInDb) {
       Logger::getInstance().warningC(
           "FileReceiver::receiveChunk", filename,
@@ -432,10 +468,12 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
             : static_cast<uintmax_t>(chunkData.size());
     const fs::path normalizedReconstructedPath =
         normalizePathForFs(reconstructedFilePath);
-    if (replaceReconstructedFile) {
+    if (replaceReconstructedFile || resetPartialTransfer) {
       try {
         database.beginTransaction();
-        database.deleteReconstructedFile(clDirKey, filename);
+        if (replaceReconstructedFile) {
+          database.deleteReconstructedFile(clDirKey, filename);
+        }
         database.deleteChunksByFile(clDirKey, filename);
         database.commitTransaction();
       } catch (...) {
@@ -567,7 +605,8 @@ FileReceiver::receiveChunk(const ChunkMetadata &chunk,
       database.insertChunk(clientDirectory, effectiveChunk.getFilename(),
                            effectiveChunk.getChunkNumber(),
                            effectiveChunk.getTotalChunk(),
-                           effectiveChunk.getHash(), reconstructedFilePath);
+                           effectiveChunk.getHash(), reconstructedFilePath,
+                           effectiveChunk.getTransferId());
       Logger::getInstance().infoC(
           "FileReceiver::receiveChunk", filename,
           "Successfully saved chunk {} for file '{}' to DB.",
@@ -754,7 +793,8 @@ void FileReceiver::tryReconstructFile(const std::string &clientAddress,
       fs::path reconstructedPath =
           getReconstructedFilePath(clientAddress, filename);
       database.beginTransaction();
-      database.addReconstructedFile(clientAddress, filename, reconstructedPath);
+      database.addReconstructedFile(clientAddress, filename, reconstructedPath,
+                                    chunks.front().getTransferId());
       database.deleteChunksByFile(clientAddress, filename);
       database.commitTransaction();
 

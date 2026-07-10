@@ -11,9 +11,11 @@ constexpr const char *kResponsePrefix = "AUTH_RESPONSE_V1 ";
 constexpr const char *kSignedChallengePrefix = "AUTH_SIGNED_CHALLENGE_V1 ";
 constexpr const char *kSignedResponsePrefix = "AUTH_SIGNED_RESPONSE_V1 ";
 constexpr const char *kSignedOkPrefix = "AUTH_SIGNED_OK_V1 ";
+constexpr const char *kSecureSessionPrefix = "SECURE_SESSION_V1 ";
 constexpr const char *kAuthFailed = "AUTH_FAILED";
 constexpr size_t kChallengeBytes = 32;
 constexpr size_t kX25519KeyBytes = 32;
+constexpr size_t kSessionIdBytes = 16;
 
 struct EphemeralKeyPair {
   std::string privateKeyHex;
@@ -33,6 +35,7 @@ struct SignedResponse {
 };
 
 std::string CreateChallenge();
+std::string CreateSessionId();
 EphemeralKeyPair CreateEphemeralKeyPair();
 std::string BuildChallengeMessage(const std::string &challengeHex);
 bool TryParseChallengeMessage(const std::string &message,
@@ -49,6 +52,16 @@ bool VerifyResponseMessage(const std::string &challengeHex,
                             const std::string &preSharedKey,
                             const std::string &responseMessage,
                             std::string *clientId = nullptr);
+
+std::string DerivePskSessionSecret(const std::string &challengeHex,
+                                   const std::string &preSharedKey,
+                                   const std::string &clientId);
+
+std::string BuildSecureSessionMessage(const std::string &sessionIdHex,
+                                      const std::string &sessionSecret);
+bool TryParseSecureSessionMessage(const std::string &message,
+                                  const std::string &sessionSecret,
+                                  std::string &sessionIdHex);
 
 std::string BuildSignedChallengeMessage(const SignedChallenge &challenge);
 bool TryParseSignedChallengeMessage(const std::string &message,

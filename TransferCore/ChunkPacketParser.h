@@ -13,6 +13,7 @@ inline constexpr uint32_t kMaxMetadataSizeBytes = 256U * 1024U;
 inline constexpr uint32_t kMaxPacketSizeBytes = kMaxChunkSizeBytes + kMaxMetadataSizeBytes;
 inline constexpr uint64_t kMaxFileSizeBytes = 100ULL * 1024ULL * 1024ULL * 1024ULL;
 inline constexpr uint32_t kMaxTotalChunks = 1000000U;
+inline constexpr uint32_t kTransferIdHexLength = 64U;
 
 bool IsSafeFilename(const std::string& filename);
 bool IsSafeRelativeDirectory(const std::string& directory);

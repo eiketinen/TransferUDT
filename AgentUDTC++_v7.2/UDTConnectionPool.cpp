@@ -131,7 +131,8 @@ UDTConnectionPool::UDTConnectionPool(
     const std::string& securityClientId,
     const std::string& securityIdentityMode,
     const std::string& securityClientPrivateKeyPath,
-    const std::string& securityServerPublicKeyPath)
+    const std::string& securityServerPublicKeyPath,
+    bool securityEnabled)
     : serverHost_(host),
     serverPort_(port),
     maxBandwidth_(maxBandwidth),
@@ -150,6 +151,7 @@ UDTConnectionPool::UDTConnectionPool(
     keepAliveEnabled_(keepAliveEnabled),
     keepAliveInterval_(std::chrono::seconds(keepAliveIntervalSeconds)),
     keepAlivePayload_(keepAlivePayload),
+    securityEnabled_(securityEnabled),
     securityHandshakeEnabled_(securityHandshakeEnabled),
     securityPreSharedKey_(securityPreSharedKey),
     securityClientId_(securityClientId),
@@ -197,7 +199,7 @@ std::shared_ptr<UDTConnection> UDTConnectionPool::_createConnection() {
     );
 
     if (connected) {
-        if (requireGreeting_) {
+        if (requireGreeting_ || securityHandshakeEnabled_ || securityEnabled_) {
             bool timeoutAdjusted = false;
             if (greetingTimeoutMs_ > 0 && greetingTimeoutMs_ != receiveTimeout_) {
                 if (connection->setReceiveTimeout(greetingTimeoutMs_)) {
@@ -332,6 +334,9 @@ std::shared_ptr<UDTConnection> UDTConnectionPool::_createConnection() {
                         circuitBreaker_.reportFailure();
                         return nullptr;
                     }
+                    connection->setSecureSessionKey(
+                        SecurityHandshake::DerivePskSessionSecret(
+                            challenge, securityPreSharedKey_, securityClientId_));
                 }
                 catch (const std::exception& ex) {
                     Logger::getInstance().warning("UDTConnectionPool::_createConnection",
@@ -357,6 +362,38 @@ std::shared_ptr<UDTConnection> UDTConnectionPool::_createConnection() {
                     circuitBreaker_.reportFailure();
                     return nullptr;
                 }
+                }
+            }
+            if (securityEnabled_) {
+                const std::string& negotiatedKey = connection->getSecureSessionKey();
+                const std::string sessionSecret =
+                    negotiatedKey.empty() ? securityPreSharedKey_ : negotiatedKey;
+                std::string sessionId;
+                if (!SecurityHandshake::TryParseSecureSessionMessage(
+                        response, sessionSecret, sessionId)) {
+                    Logger::getInstance().warning("UDTConnectionPool::_createConnection",
+                        "Server did not provide a valid authenticated secure session.");
+                    connection->close();
+                    circuitBreaker_.reportFailure();
+                    return nullptr;
+                }
+                try {
+                    connection->setSecureSessionId(std::move(sessionId));
+                }
+                catch (const std::exception& ex) {
+                    Logger::getInstance().warning("UDTConnectionPool::_createConnection",
+                        "Failed to establish secure session state: " +
+                        std::string(ex.what()));
+                    connection->close();
+                    circuitBreaker_.reportFailure();
+                    return nullptr;
+                }
+                if (!connection->recvString(response)) {
+                    Logger::getInstance().warning("UDTConnectionPool::_createConnection",
+                        "READY greeting not received after secure session establishment.");
+                    connection->close();
+                    circuitBreaker_.reportFailure();
+                    return nullptr;
                 }
             }
             if (!expectedGreeting_.empty() && response != expectedGreeting_) {

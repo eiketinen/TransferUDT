@@ -1,4 +1,6 @@
 #include "UDTConnection.h"
+#include <limits>
+#include <stdexcept>
 #include <vector>
 
 /**
@@ -35,6 +37,10 @@ bool UDTConnection::connect(const std::string &host, int port,
 
   connected = false;
   sock = UDT::INVALID_SOCK;
+  secureSessionKey.clear();
+  secureSessionId.clear();
+  nextSecureOutboundSequence = 1;
+  expectedSecureInboundSequence = 1;
 
   addrinfo hints{};
   hints.ai_family = AF_UNSPEC;     // Allow IPv4 or IPv6 resolution
@@ -209,8 +215,12 @@ void UDTConnection::close() {
   if (sock != UDT::INVALID_SOCK) {
     UDT::close(sock);
     sock = UDT::INVALID_SOCK;
-    connected = false;
   }
+  connected = false;
+  secureSessionKey.clear();
+  secureSessionId.clear();
+  nextSecureOutboundSequence = 1;
+  expectedSecureInboundSequence = 1;
 }
 
 /**
@@ -410,4 +420,33 @@ UDTSTATUS UDTConnection::getState() const {
     return NONEXIST;
   }
   return UDT::getsockstate(sock);
+}
+
+void UDTConnection::setSecureSessionId(std::string sessionId) {
+  if (sessionId.empty()) {
+    throw std::invalid_argument("Secure session id cannot be empty.");
+  }
+  secureSessionId = std::move(sessionId);
+  nextSecureOutboundSequence = 1;
+  expectedSecureInboundSequence = 1;
+}
+
+uint64_t UDTConnection::takeNextSecureOutboundSequence() {
+  if (secureSessionId.empty()) {
+    throw std::runtime_error("Secure session id has not been established.");
+  }
+  if (nextSecureOutboundSequence == (std::numeric_limits<uint64_t>::max)()) {
+    throw std::runtime_error("Secure outbound sequence space is exhausted.");
+  }
+  return nextSecureOutboundSequence++;
+}
+
+bool UDTConnection::acceptSecureInboundSequence(uint64_t sequenceNumber) {
+  if (secureSessionId.empty() ||
+      expectedSecureInboundSequence == (std::numeric_limits<uint64_t>::max)() ||
+      sequenceNumber != expectedSecureInboundSequence) {
+    return false;
+  }
+  ++expectedSecureInboundSequence;
+  return true;
 }

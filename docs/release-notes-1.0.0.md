@@ -18,6 +18,8 @@ documentacao operacional.
 - Reconstrucao server-side.
 - SQLite para estado local.
 - Retentativa de chunks pendentes.
+- Retomada idempotente apos encerramento inesperado do Agent, com
+  `transfer_id`, offsets persistidos e deduplicacao server-side.
 - Limites de tamanho de arquivo e quota por cliente.
 - Reenvio configuravel de nova versao do mesmo caminho quando o conteudo muda:
   Agent detecta por SHA-256 e Server aplica politica `overwrite`, `reject` ou
@@ -31,8 +33,9 @@ documentacao operacional.
 - Build Release limpo de Agent e Server.
 - Publish self-contained win-x64 do Dashboard.
 - Geracao do wizard Inno Setup.
-- Agent tests: 27/27.
-- Server tests: 28/28.
+- Agent tests: 34/34.
+- Server tests: 42/42.
+- E2E de reinicio do Agent durante transferencia com validacao SHA-256.
 - SHA256 publicado para o instalador e para o pacote final.
 
 ## Observacoes de seguranca

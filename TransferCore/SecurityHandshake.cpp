@@ -76,6 +76,11 @@ bool isValidClientId(const std::string &clientId) {
          clientId.find_first_of(" \t\r\n") == std::string::npos;
 }
 
+bool isValidSessionId(const std::string &sessionId) {
+  return sessionId.size() == SecurityHandshake::kSessionIdBytes * 2 &&
+         isLowerHex(sessionId);
+}
+
 std::string hmacSha256Hex(const std::string &message,
                           const std::string &preSharedKey) {
   unsigned int digestLen = 0;
@@ -304,6 +309,14 @@ std::string CreateChallenge() {
   return toHex(challenge.data(), challenge.size());
 }
 
+std::string CreateSessionId() {
+  std::vector<unsigned char> sessionId(kSessionIdBytes);
+  if (RAND_bytes(sessionId.data(), static_cast<int>(sessionId.size())) != 1) {
+    throw std::runtime_error("Failed to generate secure session id.");
+  }
+  return toHex(sessionId.data(), sessionId.size());
+}
+
 EphemeralKeyPair CreateEphemeralKeyPair() {
   EvpPkeyCtxPtr ctx(EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr),
                     EVP_PKEY_CTX_free);
@@ -419,6 +432,75 @@ bool VerifyResponseMessage(const std::string &challengeHex,
     *clientId = claimedClientId;
   }
   return constantTimeEquals(actual, expected);
+}
+
+std::string DerivePskSessionSecret(const std::string &challengeHex,
+                                   const std::string &preSharedKey,
+                                   const std::string &clientId) {
+  if (challengeHex.size() != kChallengeBytes * 2 ||
+      !isLowerHex(challengeHex)) {
+    throw std::invalid_argument("Invalid authentication challenge.");
+  }
+  if (preSharedKey.empty()) {
+    throw std::invalid_argument("Cannot derive a session secret from an empty PSK.");
+  }
+  if (!clientId.empty() && !isValidClientId(clientId)) {
+    throw std::invalid_argument("Invalid authentication client id.");
+  }
+  return hmacSha256Hex("TransferUDT PSK session v1|" + challengeHex + "|" +
+                           clientId,
+                       preSharedKey);
+}
+
+std::string BuildSecureSessionMessage(const std::string &sessionIdHex,
+                                      const std::string &sessionSecret) {
+  if (!isValidSessionId(sessionIdHex)) {
+    throw std::invalid_argument("Invalid secure session id.");
+  }
+  if (sessionSecret.empty()) {
+    throw std::invalid_argument("Cannot authenticate a session with an empty secret.");
+  }
+  const std::string transcript =
+      "TransferUDT secure session v1|" + sessionIdHex;
+  return std::string(kSecureSessionPrefix) + sessionIdHex + " " +
+         hmacSha256Hex(transcript, sessionSecret);
+}
+
+bool TryParseSecureSessionMessage(const std::string &message,
+                                  const std::string &sessionSecret,
+                                  std::string &sessionIdHex) {
+  sessionIdHex.clear();
+  if (sessionSecret.empty()) {
+    return false;
+  }
+
+  const std::string prefix(kSecureSessionPrefix);
+  if (message.rfind(prefix, 0) != 0) {
+    return false;
+  }
+
+  const std::string payload = message.substr(prefix.size());
+  const size_t separator = payload.find(' ');
+  if (separator == std::string::npos ||
+      payload.find(' ', separator + 1) != std::string::npos) {
+    return false;
+  }
+
+  const std::string candidateSessionId = payload.substr(0, separator);
+  const std::string signature = payload.substr(separator + 1);
+  if (!isValidSessionId(candidateSessionId) || signature.size() != 64 ||
+      !isLowerHex(signature)) {
+    return false;
+  }
+
+  const std::string expected = hmacSha256Hex(
+      "TransferUDT secure session v1|" + candidateSessionId, sessionSecret);
+  if (!constantTimeEquals(signature, expected)) {
+    return false;
+  }
+
+  sessionIdHex = candidateSessionId;
+  return true;
 }
 
 std::string BuildSignedChallengeMessage(const SignedChallenge &challenge) {

@@ -81,7 +81,7 @@ private:
 
   bool splitFile(
       std::ifstream &file, const fs::path &filePath, std::streamsize fileSize,
-      DWORDLONG chunkSize,
+      DWORDLONG chunkSize, const std::string &transferId,
       std::function<ChunkProcessingResult(
           const ChunkMetadata &, const std::vector<char> &, uint64_t, uint64_t)>
           chunkProcessorFunc);

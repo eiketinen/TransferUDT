@@ -130,9 +130,11 @@ void runDatabaseTests(TestStats& stats, Database& db, const TestEnvironment& env
         const std::filesystem::path filename = "dynamic_offset.bin";
         const std::filesystem::path filePath = env.tempRoot / "db_offsets" / filename;
         constexpr uint64_t chunkOffset = 12345;
+        const std::string transferId =
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
 
         db.insertChunk(filename, 2, 0, 200, 75, "hash_offset", filePath,
-                       "failed", chunkOffset);
+                       "failed", chunkOffset, transferId);
 
         bool found = false;
         auto pendingChunks = db.getPendingChunks(10'000);
@@ -143,6 +145,8 @@ void runDatabaseTests(TestStats& stats, Database& db, const TestEnvironment& env
                         "Adaptive non-final pending chunk should keep unknown total.");
                 require(chunk.getChunkOffset() == chunkOffset,
                         "Pending chunk should preserve its byte offset for retry.");
+                require(chunk.getTransferId() == transferId,
+                        "Pending chunk should preserve its transfer identity.");
             }
         }
 

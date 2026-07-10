@@ -1,12 +1,35 @@
 #include "tests/TestSuites.h"
 
 #include "CircuitBreaker.h"
+#include "UDTConnection.h"
 #include "UDTConnectionPool.h"
 
 #include <chrono>
 #include <thread>
 
 void runConnectionPoolTests(TestStats& stats) {
+    runTest("UDTConnection - secure session tracks independent directions", [&]() {
+        UDTConnection connection;
+        connection.setSecureSessionId("00112233445566778899aabbccddeeff");
+
+        require(connection.takeNextSecureOutboundSequence() == 1,
+            "First secure outbound packet should use sequence one.");
+        require(connection.takeNextSecureOutboundSequence() == 2,
+            "Secure outbound sequences should increase monotonically.");
+        require(connection.acceptSecureInboundSequence(1),
+            "First secure inbound packet should use sequence one.");
+        require(!connection.acceptSecureInboundSequence(1),
+            "Replayed secure inbound sequence should be rejected.");
+        require(connection.acceptSecureInboundSequence(2),
+            "Next secure inbound sequence should be accepted.");
+
+        connection.setSecureSessionId("ffeeddccbbaa99887766554433221100");
+        require(connection.takeNextSecureOutboundSequence() == 1,
+            "A new secure session should reset outbound sequencing.");
+        require(connection.acceptSecureInboundSequence(1),
+            "A new secure session should reset inbound sequencing.");
+    }, stats);
+
     runTest("UDTConnectionPool - shutdown interrupts keep-alive wait", [&]() {
         CircuitBreaker cb("pool_shutdown_interrupt", 5, std::chrono::seconds(60));
         UDTConnectionPool pool(

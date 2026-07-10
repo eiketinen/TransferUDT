@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <memory>
@@ -29,6 +30,9 @@
 #include <vector>
 
 namespace {
+
+constexpr const char *kTestTransferId =
+    "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
 namespace fs = std::filesystem;
 
 class ConstantVerifier final : public IFileIntegrityVerifier {
@@ -126,11 +130,14 @@ std::vector<char> buildChunkPacket(const std::string &filename,
                                    uint64_t chunkOffset,
                                    uint64_t totalFileSize,
                                    const std::string &hash,
-                                   const std::vector<char> &chunkData) {
+                                   const std::vector<char> &chunkData,
+                                   const std::string &transferId =
+                                       kTestTransferId) {
   std::vector<char> payload;
   appendString(payload, filename);
   appendString(payload, directory);
   appendString(payload, serverAddress);
+  appendString(payload, transferId);
   appendU32(payload, chunkNumber);
   appendU32(payload, totalChunks);
   appendU64(payload, chunkOffset);
@@ -196,16 +203,26 @@ bool recvString(UDTSOCKET socket, std::string &value) {
   return true;
 }
 
-uint32_t maxSecureControlContentLength() {
-  return SecurePacket::kMagicSize + (sizeof(uint32_t) * 4U) +
-         SecurePacket::kNonceSize + SecurePacket::kTagSize +
-         sizeof(uint32_t) + SecurePacket::kMaxControlMessageBytes;
+struct SecureTestSession {
+  std::string key;
+  std::string sessionId;
+  std::string greeting;
+  uint64_t nextOutboundSequence = 1;
+  uint64_t expectedInboundSequence = 1;
+};
+
+uint64_t maxSecureControlContentLength() {
+  return SecurePacket::MaxSessionEncryptedContentLength(
+      sizeof(uint32_t) + SecurePacket::kMaxControlMessageBytes);
 }
 
-bool recvControlMessage(UDTSOCKET socket, const std::string &preSharedKey,
-                        bool secure, std::string &value) {
+bool recvControlMessage(UDTSOCKET socket, bool secure,
+                        SecureTestSession *session, std::string &value) {
   if (!secure) {
     return recvString(socket, value);
+  }
+  if (session == nullptr) {
+    return false;
   }
 
   uint32_t totalLengthNetwork = 0;
@@ -226,18 +243,31 @@ bool recvControlMessage(UDTSOCKET socket, const std::string &preSharedKey,
     return false;
   }
 
-  value = SecurePacket::DecryptControlMessage(buffer, preSharedKey);
-  return true;
+  try {
+    SecurePacket::SessionMetadata metadata;
+    value = SecurePacket::DecryptControlMessage(
+        buffer, session->key, session->sessionId, &metadata);
+    if (metadata.sequenceNumber != session->expectedInboundSequence) {
+      return false;
+    }
+    ++session->expectedInboundSequence;
+    return true;
+  } catch (const std::exception &) {
+    return false;
+  }
 }
 
-bool sendControlMessage(UDTSOCKET socket, const std::string &preSharedKey,
-                        bool secure, const std::string &value) {
+bool sendControlMessage(UDTSOCKET socket, bool secure,
+                        SecureTestSession *session, const std::string &value) {
   if (!secure) {
     return sendString(socket, value);
   }
+  if (session == nullptr) {
+    return false;
+  }
 
-  std::vector<char> encrypted =
-      SecurePacket::EncryptControlMessage(value, preSharedKey);
+  std::vector<char> encrypted = SecurePacket::EncryptControlMessage(
+      value, session->key, session->sessionId, session->nextOutboundSequence++);
   return sendAll(socket, encrypted.data(), static_cast<int>(encrypted.size()));
 }
 
@@ -313,9 +343,9 @@ std::string readBinaryFile(const fs::path &filePath) {
                      std::istreambuf_iterator<char>());
 }
 
-std::string receiveReadyAfterChallenge(UDTSOCKET socket,
-                                       const std::string &preSharedKey,
-                                       const std::string &clientId = "") {
+SecureTestSession receiveReadyAfterChallenge(UDTSOCKET socket,
+                                             const std::string &preSharedKey,
+                                             const std::string &clientId = "") {
   std::string firstMessage;
   require(recvString(socket, firstMessage),
           "Client should receive authentication challenge");
@@ -327,10 +357,21 @@ std::string receiveReadyAfterChallenge(UDTSOCKET socket,
                                  challenge, preSharedKey, clientId)),
           "Client should send authentication response");
 
+  SecureTestSession session;
+  session.key = SecurityHandshake::DerivePskSessionSecret(
+      challenge, preSharedKey, clientId);
+  std::string sessionMessage;
+  require(recvString(socket, sessionMessage),
+          "Client should receive authenticated secure session");
+  require(SecurityHandshake::TryParseSecureSessionMessage(
+              sessionMessage, session.key, session.sessionId),
+          "Server should send a valid authenticated secure session");
+
   std::string greeting;
   require(recvString(socket, greeting),
           "Client should receive READY greeting after authentication");
-  return greeting;
+  session.greeting = greeting;
+  return session;
 }
 } // namespace
 
@@ -386,10 +427,10 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
           const std::string clientNamespace = "id_agent-one";
           const std::string clientPsk =
               config.getSecurityPreSharedKeyForClient(clientId);
-          std::string greeting = receiveReadyAfterChallenge(
+          SecureTestSession secureSession = receiveReadyAfterChallenge(
               client.get(), clientPsk, clientId);
-          require(greeting == "READY",
-                  "Unexpected server greeting: " + greeting);
+          require(secureSession.greeting == "READY",
+                  "Unexpected server greeting: " + secureSession.greeting);
 
           const std::string filename = "secure_transfer_e2e.bin";
           const std::string directory = "secure_transfer/XXX/XXXX";
@@ -399,7 +440,8 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
               filename, directory, "127.0.0.1:" + std::to_string(port), 0, 1,
               0, data.size(), "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", data);
           auto encrypted = SecurePacket::EncryptPacket(
-              packet, clientPsk);
+              packet, secureSession.key, secureSession.sessionId,
+              secureSession.nextOutboundSequence++);
           require(SecurePacket::IsEncryptedPacket(encrypted),
                   "Client fixture should send encrypted packet");
           require(sendAll(client.get(), encrypted.data(),
@@ -407,15 +449,13 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
                   "Client should send encrypted packet");
 
           std::string response;
-          require(recvControlMessage(client.get(),
-                                     clientPsk,
-                                     config.isSecurityEnabled(), response),
+          require(recvControlMessage(client.get(), config.isSecurityEnabled(),
+                                     &secureSession, response),
                   "Client should receive completion response");
           require(response == "SUCCESS_FILE_COMPLETE",
                   "Unexpected server response: " + response);
-          require(sendControlMessage(client.get(),
-                                     clientPsk,
-                                     config.isSecurityEnabled(), "CLOSE_NOW"),
+          require(sendControlMessage(client.get(), config.isSecurityEnabled(),
+                                     &secureSession, "CLOSE_NOW"),
                   "Client should acknowledge completion");
 
           client.close();
@@ -502,10 +542,10 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
           const std::string clientNamespace = "id_agent-one";
           const std::string clientPsk =
               config.getSecurityPreSharedKeyForClient(clientId);
-          std::string greeting = receiveReadyAfterChallenge(
+          SecureTestSession secureSession = receiveReadyAfterChallenge(
               client.get(), clientPsk, clientId);
-          require(greeting == "READY",
-                  "Unexpected server greeting: " + greeting);
+          require(secureSession.greeting == "READY",
+                  "Unexpected server greeting: " + secureSession.greeting);
 
           const std::string filename = "plaintext_rejected_e2e.bin";
           const std::string directory = "secure_transfer";
@@ -521,9 +561,8 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
                   "Client should send plaintext packet");
 
           std::string response;
-          require(recvControlMessage(client.get(),
-                                     clientPsk,
-                                     config.isSecurityEnabled(), response),
+          require(recvControlMessage(client.get(), config.isSecurityEnabled(),
+                                     &secureSession, response),
                   "Client should receive rejection response");
           require(response.find("FAILED:") == 0,
                   "Plaintext packet should be rejected with FAILED response");
@@ -550,6 +589,128 @@ void runSecureTransferIntegrationTests(TestStats &stats, Database &db,
           require(!db.isFileReconstructed(clientNamespace + "/" + directory,
                                           filename),
                   "Rejected plaintext transfer should not be marked reconstructed");
+        } catch (...) {
+          client.close();
+          listener.close();
+          if (serverThread.joinable()) {
+            serverThread.join();
+          }
+          pool.stop();
+          throw;
+        }
+      },
+      stats);
+
+  runTest(
+      "Secure transfer rejects replayed session packet",
+      [&]() {
+        auto &config = ServerConfig::getInstance();
+        require(config.isSecurityEnabled(),
+                "Integration test requires security.enabled=true");
+        require(config.isSecurityHandshakeEnabled(),
+                "Integration test requires security.handshake.enabled=true");
+
+        UdtRuntime udt;
+        ThreadPool pool(1);
+        auto verifier = std::make_unique<ConstantVerifier>(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        auto receiver = std::make_shared<FileReceiver>(db, std::move(verifier),
+                                                       config, pool);
+
+        uint16_t port = 0;
+        UdtSocket listener = createListener(port);
+
+        std::exception_ptr serverError;
+        std::atomic<bool> accepted{false};
+        std::thread serverThread([&]() {
+          try {
+            sockaddr_in clientAddress{};
+            int clientAddressLen = sizeof(clientAddress);
+            UdtSocket acceptedSocket(UDT::accept(
+                listener.get(), reinterpret_cast<sockaddr *>(&clientAddress),
+                &clientAddressLen));
+            accepted.store(true);
+            if (acceptedSocket.get() == UDT::INVALID_SOCK) {
+              throw std::runtime_error(
+                  "UDT::accept failed: " +
+                  std::string(UDT::getlasterror().getErrorMessage()));
+            }
+
+            ClientHandler handler(acceptedSocket.release(), &clientAddress,
+                                  receiver);
+            handler.handleClient();
+          } catch (...) {
+            serverError = std::current_exception();
+          }
+        });
+
+        UdtSocket client;
+        try {
+          client = connectClient(port);
+
+          const std::string clientId = "agent-one";
+          const std::string clientNamespace = "id_agent-one";
+          const std::string clientPsk =
+              config.getSecurityPreSharedKeyForClient(clientId);
+          SecureTestSession secureSession = receiveReadyAfterChallenge(
+              client.get(), clientPsk, clientId);
+          require(secureSession.greeting == "READY",
+                  "Unexpected server greeting: " + secureSession.greeting);
+
+          // Keep the replay fixture isolated across repeated local test runs;
+          // the database intentionally survives between integration scenarios.
+          const auto fixtureId = std::to_string(
+              std::chrono::steady_clock::now().time_since_epoch().count());
+          const std::string filename =
+              "secure_replay_rejected_e2e_" + fixtureId + ".bin";
+          const std::string directory = "secure_replay_" + fixtureId;
+          const std::string payload = "replay-safe";
+          const std::vector<char> data(payload.begin(), payload.end());
+          const uint64_t totalFileSize = data.size() * 2ULL;
+          const auto packet = buildChunkPacket(
+              filename, directory, "127.0.0.1:" + std::to_string(port), 0, 2,
+              0, totalFileSize,
+              "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              data);
+          const auto encrypted = SecurePacket::EncryptPacket(
+              packet, secureSession.key, secureSession.sessionId,
+              secureSession.nextOutboundSequence++);
+          require(sendAll(client.get(), encrypted.data(),
+                          static_cast<int>(encrypted.size())),
+                  "Client should send the first secure packet");
+
+          std::string response;
+          require(recvControlMessage(client.get(), config.isSecurityEnabled(),
+                                     &secureSession, response),
+                  "Client should receive first chunk acknowledgement");
+          require(response == "SUCCESS",
+                  "First packet should be accepted before replay attempt");
+
+          require(sendAll(client.get(), encrypted.data(),
+                          static_cast<int>(encrypted.size())),
+                  "Client should send replayed secure packet");
+          require(!recvControlMessage(client.get(), config.isSecurityEnabled(),
+                                      &secureSession, response),
+                  "Replayed secure packet should close the connection");
+
+          client.close();
+          listener.close();
+          if (serverThread.joinable()) {
+            serverThread.join();
+          }
+          if (serverError) {
+            std::rethrow_exception(serverError);
+          }
+          require(accepted.load(), "Server should accept the test connection");
+
+          pool.stop();
+
+          // FileReceiver preallocates the destination as soon as the first
+          // chunk is accepted; reconstruction is represented by the database
+          // row and must remain false after the replay closes the session.
+          require(!db.isFileReconstructed(clientNamespace + "/" + directory,
+                                          filename),
+                  "Replay attempt must not mark the file reconstructed");
         } catch (...) {
           client.close();
           listener.close();

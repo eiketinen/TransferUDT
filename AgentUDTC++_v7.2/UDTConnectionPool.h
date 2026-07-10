@@ -99,6 +99,7 @@ class UDTConnectionPool {
     bool keepAliveEnabled_;
     std::chrono::seconds keepAliveInterval_;
     std::string keepAlivePayload_;
+    bool securityEnabled_;
     bool securityHandshakeEnabled_;
     std::string securityPreSharedKey_;
     std::string securityClientId_;
@@ -163,7 +164,8 @@ public:
         const std::string& securityClientId = "",
         const std::string& securityIdentityMode = "psk",
         const std::string& securityClientPrivateKeyPath = "",
-        const std::string& securityServerPublicKeyPath = ""
+        const std::string& securityServerPublicKeyPath = "",
+        bool securityEnabled = false
     );
 
     /**

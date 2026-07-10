@@ -13,7 +13,10 @@
 - Optional authenticated `security.client_id` allowlisting.
 - Server-side `security.client_psk.<client_id>` entries bind each configured
   client identity to its own PSK.
-- Per-connection secure packet nonce replay detection.
+- Random authenticated `sessionId` per secure session.
+- Strict directional sequence numbers shared by chunks and control messages.
+- Replayed, cross-session, or out-of-order secure packets are rejected before
+  chunk parsing; a sequence failure closes the connection.
 - Secure mode is enabled by default and insecure operation requires an explicit
   `security.allow_insecure=true` configuration.
 - Server rejects plaintext chunk packets when secure mode is enabled.
@@ -44,23 +47,19 @@
   provide certificate-chain identity.
 - There is no certificate chain validation yet.
 - mTLS is not implemented.
-- Replay resistance is currently limited to per-connection nonce reuse and
-  application-level chunk idempotency. Cross-session replay should still be
-  strengthened with authenticated transfer/session IDs persisted by the Server.
+- Replay resistance is scoped to the lifetime of the authenticated session.
+  Application-level chunk idempotency remains as a second defense against
+  duplicate logical chunks. Sequence state is intentionally not persisted
+  across connections because a new authenticated session receives a new key
+  and session identifier.
 
-## Recommended Next Step
+## Certificate-Based Identity
 
-For controlled private networks, add a signed handshake over the existing UDT
-channel: each Agent has a private signing key, the Server stores the matching
-public key per `client_id`, the Server signs its challenge/identity, and both
-sides derive per-session keys from fresh nonces plus the authenticated
-transcript.
-
-For internet-facing deployments or environments with untrusted networks, treat
-mTLS or an equivalent certificate-backed identity layer as the production
-baseline. A signed handshake can provide mutual identity, but it still leaves
-certificate lifecycle, revocation, trust-chain validation, and transport
-hardening to custom code unless those pieces are explicitly implemented.
+The current `signed_handshake` mode provides key-based mutual identity and
+ephemeral session keys. It is not mTLS: there is no certificate-chain
+validation, revocation, or TLS transport. For internet-facing deployments or
+untrusted networks, use mTLS or an equivalent certificate-backed identity layer
+as the production baseline.
 
 ## Signed Handshake Key Setup
 

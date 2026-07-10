@@ -8,6 +8,22 @@ std::once_flag Database::initFlag;
 thread_local bool Database::m_isTransactionActive = false;
 
 namespace {
+void ignoreDuplicateColumn(sqlite3 *db, const std::string &sql,
+                           const std::string &columnName) {
+  char *errMsg = nullptr;
+  if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errMsg) != SQLITE_OK) {
+    const std::string error = errMsg ? errMsg : "Unknown error";
+    if (error.find("duplicate column name") == std::string::npos) {
+      Logger::getInstance().error(
+          "Database::Database",
+          "Failed to add " + columnName + " column: " + error);
+    }
+    if (errMsg) {
+      sqlite3_free(errMsg);
+    }
+  }
+}
+
 void rollbackNoThrow(std::unique_ptr<TransactionGuard> &tx,
                      const char *context) {
   if (!tx) {
@@ -371,6 +387,7 @@ Database::Database(const std::string dbPath) : m_dbPath(dbPath) {
             file_path TEXT NOT NULL,
             status TEXT CHECK(status IN ('pending', 'success', 'failed')) DEFAULT 'pending',
             retries INTEGER DEFAULT 0,
+            transfer_id TEXT NOT NULL DEFAULT '',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (client_address, filename, chunk_number)
             );
@@ -378,6 +395,11 @@ Database::Database(const std::string dbPath) : m_dbPath(dbPath) {
 
     SQLiteStatement stmt(conn->get(), sql);
     stmt.step();
+
+    ignoreDuplicateColumn(
+        conn->get(),
+        "ALTER TABLE chunks ADD COLUMN transfer_id TEXT NOT NULL DEFAULT '';",
+        "chunks.transfer_id");
 
     std::string sqlIndexFileChunk = R"(
             CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_file_chunk ON chunks (client_address, filename, chunk_number);
@@ -397,12 +419,19 @@ Database::Database(const std::string dbPath) : m_dbPath(dbPath) {
             client_address TEXT NOT NULL,
             filename TEXT NOT NULL,
             reconstructed_path TEXT NOT NULL,
+            transfer_id TEXT NOT NULL DEFAULT '',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (client_address, filename)
         );
     )";
     SQLiteStatement stmtReconstructed(conn->get(), sqlReconstructed);
     stmtReconstructed.step();
+
+    ignoreDuplicateColumn(
+        conn->get(),
+        "ALTER TABLE reconstructed_files ADD COLUMN transfer_id TEXT NOT NULL "
+        "DEFAULT '';",
+        "reconstructed_files.transfer_id");
 
     std::string sqlErrors = R"(
             CREATE TABLE IF NOT EXISTS error_logs (
@@ -547,7 +576,8 @@ std::shared_ptr<SQLiteConnection> Database::getConnection() {
 void Database::insertChunk(const std::string &client,
                            const std::string &filename, int chunkNumber,
                            int totalChunk, const std::string &hash,
-                           const fs::path &filePath) {
+                           const fs::path &filePath,
+                           const std::string &transferId) {
   auto conn = getConnection();
   std::unique_ptr<TransactionGuard> local_tx;
   if (!m_isTransactionActive) {
@@ -556,7 +586,8 @@ void Database::insertChunk(const std::string &client,
 
   std::string sql =
       "INSERT INTO chunks (client_address, filename, chunk_number, "
-      "total_chunk, hash, file_path) VALUES (?, ?, ?, ?, ?, ?);";
+      "total_chunk, hash, file_path, transfer_id) VALUES (?, ?, ?, ?, ?, ?, "
+      "?);";
 
   try {
     SQLiteStatement stmt(conn->get(), sql);
@@ -566,6 +597,7 @@ void Database::insertChunk(const std::string &client,
     stmt.bindInt(4, totalChunk);
     stmt.bindText(5, hash);
     stmt.bindText16(6, filePath.wstring());
+    stmt.bindText(7, transferId);
     stmt.step();
     if (local_tx) {
       local_tx->commit();
@@ -727,6 +759,41 @@ bool Database::isFileReconstructed(const std::string &client,
   }
 }
 
+std::string Database::getActiveTransferId(const std::string &client,
+                                          const std::string &filename) {
+  auto conn = getConnection();
+  const std::string sql =
+      "SELECT transfer_id FROM chunks WHERE client_address = ? AND filename = "
+      "? ORDER BY id LIMIT 1;";
+  try {
+    SQLiteStatement stmt(conn->get(), sql);
+    stmt.bindText(1, client);
+    stmt.bindText(2, filename);
+    return stmt.step() ? stmt.getText(0) : std::string{};
+  } catch (const std::exception &e) {
+    throw DatabaseException("Failed to read active transfer id: " +
+                            std::string(e.what()));
+  }
+}
+
+std::string
+Database::getReconstructedTransferId(const std::string &client,
+                                     const std::string &filename) {
+  auto conn = getConnection();
+  const std::string sql =
+      "SELECT transfer_id FROM reconstructed_files WHERE client_address = ? "
+      "AND filename = ? LIMIT 1;";
+  try {
+    SQLiteStatement stmt(conn->get(), sql);
+    stmt.bindText(1, client);
+    stmt.bindText(2, filename);
+    return stmt.step() ? stmt.getText(0) : std::string{};
+  } catch (const std::exception &e) {
+    throw DatabaseException("Failed to read reconstructed transfer id: " +
+                            std::string(e.what()));
+  }
+}
+
 /**
  * @brief Retrieves chunks for a specific file
  * @param filename Name of the file
@@ -739,7 +806,7 @@ Database::getChunksForFile(const std::string &client,
   auto conn = getConnection();
   std::string sql =
       "SELECT client_address, filename, chunk_number, total_chunk, hash, "
-      "file_path FROM chunks WHERE filename = ? AND client_address = ? AND "
+      "file_path, transfer_id FROM chunks WHERE filename = ? AND client_address = ? AND "
       "status = 'success' ORDER BY chunk_number ASC;";
 
   try {
@@ -749,6 +816,7 @@ Database::getChunksForFile(const std::string &client,
     while (stmt.step()) {
       chunks.emplace_back(stmt.getText(0), stmt.getText(1), stmt.getInt(2),
                           stmt.getInt(3), stmt.getText(4), stmt.getText16(5));
+      chunks.back().setTransferId(stmt.getText(6));
     }
   } catch (const std::exception &e) {
     logError("Failed to get chunks for file: " + std::string(e.what()));
@@ -765,7 +833,8 @@ Database::getChunksForFile(const std::string &client,
  */
 void Database::addReconstructedFile(const std::string &clientAddress,
                                     const std::string &filename,
-                                    const fs::path &path) {
+                                    const fs::path &path,
+                                    const std::string &transferId) {
   auto conn = getConnection();
   std::unique_ptr<TransactionGuard> local_tx;
   if (!m_isTransactionActive) {
@@ -775,12 +844,13 @@ void Database::addReconstructedFile(const std::string &clientAddress,
   // adicionado, o que é seguro neste fluxo.
   std::string sql =
       "INSERT OR IGNORE INTO reconstructed_files (client_address, filename, "
-      "reconstructed_path) VALUES (?, ?, ?);";
+      "reconstructed_path, transfer_id) VALUES (?, ?, ?, ?);";
   try {
     SQLiteStatement stmt(conn->get(), sql);
     stmt.bindText(1, clientAddress);
     stmt.bindText(2, filename);
     stmt.bindText16(3, path.wstring());
+    stmt.bindText(4, transferId);
     stmt.step();
     if (local_tx) {
       local_tx->commit();

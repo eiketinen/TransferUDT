@@ -138,6 +138,8 @@ buildable code (skipped when the PR carries `no-build`):
   architecture.
 - Both `dist/releases/TransferUDT-*-windows-{x64,x86}.zip` artifacts and their
   SHA256SUMS are produced.
+- No job x64, o cenario E2E `agent-restart-resume` encerra o Agent durante a
+  transferencia e exige retomada com o mesmo SHA-256.
 
 Existing CI workflows (`windows-ci.yml`, `security.yml`) continue to run
 independently. Merge is blocked if any of them fail.

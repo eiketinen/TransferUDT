@@ -1,4 +1,5 @@
 ﻿#include "NetworkManager.h"
+#include "ChunkPacketParser.h"
 #include "RadarConfig.h"
 #include "WatchedPathMapper.h"
 #include <cmath>
@@ -38,10 +39,9 @@ std::string directoryForChunk(const ChunkMetadata &chunk) {
   return chunk.getFilePath().parent_path().filename().u8string();
 }
 
-uint32_t maxSecureControlContentLength() {
-  return SecurePacket::kMagicSize + (sizeof(uint32_t) * 4U) +
-         SecurePacket::kNonceSize + SecurePacket::kTagSize +
-         sizeof(uint32_t) + SecurePacket::kMaxControlMessageBytes;
+uint64_t maxSecureControlContentLength() {
+  return SecurePacket::MaxSessionEncryptedContentLength(
+      sizeof(uint32_t) + SecurePacket::kMaxControlMessageBytes);
 }
 
 bool waitInterruptible(const std::atomic<bool> &isRunning,
@@ -148,7 +148,7 @@ NetworkManager::NetworkManager(
         this->securityHandshakeEnabled, this->securityPreSharedKey,
         this->securityClientId, this->securityIdentityMode,
         this->securityClientPrivateKeyPath,
-        this->securityServerPublicKeyPath);
+        this->securityServerPublicKeyPath, this->securityEnabled);
 
     auto adaptiveChunks =
         std::make_unique<AdaptiveChunkController>(adaptiveChunkSettings);
@@ -534,6 +534,15 @@ NetworkManager::ChunkSendResult NetworkManager::_sendChunkInternal(
   const std::string serverAddress =
       endpoint.host + ":" + std::to_string(endpoint.port);
 
+  if (chunk.getTransferId().size() !=
+      ChunkPacketParser::kTransferIdHexLength) {
+    Logger::getInstance().error(
+        "NetworkManager::_sendChunkInternal",
+        "Chunk " + std::to_string(chunk.getChunkNumber()) +
+            " has no valid transfer identity; refusing to send it.");
+    return ChunkSendResult::Failure;
+  }
+
   if (target.adaptiveChunks && target.adaptiveChunks->isEnabled()) {
     Logger::getInstance().info(
         "NetworkManager::_sendChunkInternal",
@@ -549,15 +558,19 @@ NetworkManager::ChunkSendResult NetworkManager::_sendChunkInternal(
   // Serializa a mensagem
   std::vector<char> serializedMessage = serializeChunkMessage(
       chunk.getFilename(), directoryForChunk(chunk), serverAddress,
-      chunk.getChunkNumber(), chunk.getTotalChunk(), chunkOffset, totalFileSize,
-      chunk.getHash(), data);
+      chunk.getTransferId(), chunk.getChunkNumber(), chunk.getTotalChunk(),
+      chunkOffset, totalFileSize, chunk.getHash(), data);
 
   if (securityEnabled) {
     try {
       const std::string secureKey =
           secureKeyForConnection(connection, securityPreSharedKey);
-      serializedMessage =
-          SecurePacket::EncryptPacket(serializedMessage, secureKey);
+      if (!connection->hasSecureSessionId()) {
+        throw std::runtime_error("Secure session was not established.");
+      }
+      serializedMessage = SecurePacket::EncryptPacket(
+          serializedMessage, secureKey, connection->getSecureSessionId(),
+          connection->takeNextSecureOutboundSequence());
     } catch (const std::exception &e) {
       Logger::getInstance().error(
           "NetworkManager::_sendChunkInternal",
@@ -683,8 +696,12 @@ bool NetworkManager::sendControlMessage(PooledUDTConnection &connection,
   try {
     const std::string secureKey =
         secureKeyForConnection(connection, securityPreSharedKey);
-    std::vector<char> encrypted =
-        SecurePacket::EncryptControlMessage(message, secureKey);
+    if (!connection->hasSecureSessionId()) {
+      throw std::runtime_error("Secure session was not established.");
+    }
+    std::vector<char> encrypted = SecurePacket::EncryptControlMessage(
+        message, secureKey, connection->getSecureSessionId(),
+        connection->takeNextSecureOutboundSequence());
     return connection->sendAll(encrypted.data(),
                                static_cast<int>(encrypted.size()));
   } catch (const std::exception &e) {
@@ -724,29 +741,25 @@ bool NetworkManager::receiveControlMessage(PooledUDTConnection &connection,
     return false;
   }
 
-  std::string nonceHex;
-  if (!SecurePacket::TryGetNonceHex(buffer, nonceHex)) {
+  if (!connection->hasSecureSessionId()) {
     Logger::getInstance().warning("NetworkManager::receiveControlMessage",
-                                  "Invalid secure control nonce.");
+                                  "Secure session was not established.");
     connection.invalidate();
     return false;
-  }
-
-  {
-    std::lock_guard<std::mutex> lock(seenSecureControlNoncesMutex);
-    if (!seenSecureControlNonces.insert(nonceHex).second) {
-      Logger::getInstance().warning("NetworkManager::receiveControlMessage",
-                                    "Replayed secure control nonce rejected.");
-      connection.invalidate();
-      return false;
-    }
   }
 
   try {
     const std::string secureKey =
         secureKeyForConnection(connection, securityPreSharedKey);
-    message =
-        SecurePacket::DecryptControlMessage(buffer, secureKey);
+    SecurePacket::SessionMetadata metadata;
+    message = SecurePacket::DecryptControlMessage(
+        buffer, secureKey, connection->getSecureSessionId(), &metadata);
+    if (!connection->acceptSecureInboundSequence(metadata.sequenceNumber)) {
+      Logger::getInstance().warning("NetworkManager::receiveControlMessage",
+                                    "Replayed or out-of-order secure control packet rejected.");
+      connection.invalidate();
+      return false;
+    }
     return true;
   } catch (const std::exception &e) {
     Logger::getInstance().warning("NetworkManager::receiveControlMessage",
@@ -1042,20 +1055,24 @@ NetworkManager::sendChunk(const ChunkMetadata &chunk,
 // server.
 std::vector<char> NetworkManager::serializeChunkMessage(
     const std::string &filename, const std::string &directoryPath,
-    const std::string &serverAddress, uint32_t chunkNumber,
+    const std::string &serverAddress, const std::string &transferId,
+    uint32_t chunkNumber,
     uint32_t totalChunks, uint64_t chunkOffset, uint64_t totalFileSize,
     const std::string &hash, const std::vector<char> &chunkData) {
   // Determine lengths for variable-size fields.
   uint32_t filenameLen = static_cast<uint32_t>(filename.size());
   uint32_t directoryPathLen = static_cast<uint32_t>(directoryPath.size());
   uint32_t serverAddressLen = static_cast<uint32_t>(serverAddress.size());
+  uint32_t transferIdLen = static_cast<uint32_t>(transferId.size());
   uint32_t hashLen = static_cast<uint32_t>(hash.size());
   uint32_t dataLen = static_cast<uint32_t>(chunkData.size());
 
   // Compute full payload length (excluding outer length field itself).
   uint32_t contentLength =
       sizeof(uint32_t) + filenameLen + sizeof(uint32_t) + directoryPathLen +
-      sizeof(uint32_t) + serverAddressLen + sizeof(uint32_t) + // chunkNumber
+      sizeof(uint32_t) + serverAddressLen +
+      sizeof(uint32_t) + transferIdLen +                       // transferId
+      sizeof(uint32_t) +                                       // chunkNumber
       sizeof(uint32_t) +                                       // totalChunks
       sizeof(uint64_t) +                                       // chunkOffset
       sizeof(uint64_t) +                                       // totalFileSize
@@ -1103,6 +1120,16 @@ std::vector<char> NetworkManager::serializeChunkMessage(
   if (serverAddressLen > 0) {
     std::memcpy(buffer.data() + offset, serverAddress.data(), serverAddressLen);
     offset += serverAddressLen;
+  }
+
+  // Serialize the stable content-derived transfer identity.
+  uint32_t transferIdLenNetwork = htonl(transferIdLen);
+  std::memcpy(buffer.data() + offset, &transferIdLenNetwork,
+              sizeof(transferIdLenNetwork));
+  offset += sizeof(transferIdLenNetwork);
+  if (transferIdLen > 0) {
+    std::memcpy(buffer.data() + offset, transferId.data(), transferIdLen);
+    offset += transferIdLen;
   }
 
   // Serialize chunkNumber field.

@@ -126,4 +126,38 @@ void runSecurityHandshakeTests(TestStats &stats, const TestEnvironment &env) {
                     "session secret should be a 32-byte hex value");
           },
           stats);
+
+  runTest("SecurityHandshake authenticates a PSK-bound transfer session",
+          [&]() {
+            const std::string challenge =
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+            const std::string psk =
+                "0123456789abcdef0123456789abcdef-secure-test-key";
+            const std::string sessionSecret =
+                SecurityHandshake::DerivePskSessionSecret(challenge, psk,
+                                                           "agent-one");
+            require(sessionSecret.size() == 64,
+                    "PSK session secret should be a 32-byte hex value");
+            require(sessionSecret !=
+                        SecurityHandshake::DerivePskSessionSecret(
+                            challenge, psk, "agent-two"),
+                    "Client identity must contribute to the PSK session secret");
+
+            const std::string sessionId = SecurityHandshake::CreateSessionId();
+            require(sessionId.size() == SecurityHandshake::kSessionIdBytes * 2,
+                    "Session id should contain 16 random bytes encoded as hex");
+            const std::string message =
+                SecurityHandshake::BuildSecureSessionMessage(sessionId,
+                                                              sessionSecret);
+            std::string parsedSessionId;
+            require(SecurityHandshake::TryParseSecureSessionMessage(
+                        message, sessionSecret, parsedSessionId),
+                    "Authenticated secure session message should parse");
+            require(parsedSessionId == sessionId,
+                    "Authenticated secure session id should round-trip");
+            require(!SecurityHandshake::TryParseSecureSessionMessage(
+                        message, sessionSecret + "tampered", parsedSessionId),
+                    "Session message must reject an incorrect secret");
+          },
+          stats);
 }

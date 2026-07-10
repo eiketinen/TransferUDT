@@ -12,7 +12,9 @@ void runDatabaseTests(TestStats& stats, Database& db, const TestEnvironment& env
         chunkFile << "chunk-data";
         chunkFile.close();
 
-        db.insertChunk(client, file, 0, 2, "hash0", chunkPath);
+        const std::string transferId =
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        db.insertChunk(client, file, 0, 2, "hash0", chunkPath, transferId);
         require(db.getChunkStatus(client, file, 0) == 1, "Chunk status should indicate existing row");
 
         db.updateChunkStatus(client, file, 0, "success");
@@ -23,6 +25,10 @@ void runDatabaseTests(TestStats& stats, Database& db, const TestEnvironment& env
         require(chunks[0].getTotalChunk() == 2, "Total chunk should be 2");
         require(chunks[0].getHash() == "hash0", "Chunk hash should match");
         require(chunks[0].getFilePath() == chunkPath, "Chunk file path should match");
+        require(chunks[0].getTransferId() == transferId,
+                "Transfer id should round-trip through the database");
+        require(db.getActiveTransferId(client, file) == transferId,
+                "Active transfer id should be queryable");
 
         require(db.getTotalChunkCount(client, file) == 2, "Total chunk count should be 2");
 

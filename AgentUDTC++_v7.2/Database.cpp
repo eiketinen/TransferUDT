@@ -15,7 +15,7 @@ void ignoreDuplicateColumn(sqlite3 *db, const std::string &sql,
     if (error.find("duplicate column name") == std::string::npos) {
       Logger::getInstance().error(
           "Database::Database",
-          "Failed to add processed_files." + columnName + " column: " + error);
+          "Failed to add " + columnName + " column: " + error);
     }
     if (errMsg) {
       sqlite3_free(errMsg);
@@ -305,6 +305,7 @@ Database::Database(const std::string dbPath) : m_dbPath(dbPath) {
                 chunk_size INTEGER DEFAULT 0,   
                 status TEXT CHECK(status IN ('pending', 'success', 'failed' ,'processed', 'abandoned')) DEFAULT 'pending',
                 retries INTEGER DEFAULT 0,
+                transfer_id TEXT NOT NULL DEFAULT '',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         )";
@@ -328,6 +329,11 @@ Database::Database(const std::string dbPath) : m_dbPath(dbPath) {
         sqlite3_free(alterErrMsg);
       }
     }
+
+    ignoreDuplicateColumn(
+        conn->get(),
+        "ALTER TABLE chunks ADD COLUMN transfer_id TEXT NOT NULL DEFAULT '';",
+        "chunks.transfer_id");
 
     SQLiteStatement stmtDropOldIndex(
         conn->get(), "DROP INDEX IF EXISTS idx_chunks_file_chunk;");
@@ -412,6 +418,22 @@ Database::Database(const std::string dbPath) : m_dbPath(dbPath) {
 
     SQLiteStatement stmtErrors(conn->get(), sqlErrors);
     stmtErrors.step();
+
+    SQLiteStatement stmtBackfillTransferIds(
+        conn->get(),
+        "UPDATE chunks SET transfer_id = COALESCE((SELECT content_hash FROM "
+        "processed_files WHERE processed_files.file_path = chunks.file_path), "
+        "'') WHERE transfer_id = ''; ");
+    stmtBackfillTransferIds.step();
+
+    // No process can still own these rows after startup. Retrying them through
+    // the normal failed-file path rebuilds chunks that were not yet persisted
+    // when the previous process stopped.
+    SQLiteStatement stmtRecoverInterrupted(
+        conn->get(),
+        "UPDATE processed_files SET status = 'failed' WHERE status = "
+        "'processing';");
+    stmtRecoverInterrupted.step();
 
     tx.commit();
     Logger::getInstance().info(
@@ -561,7 +583,8 @@ std::shared_ptr<SQLiteConnection> Database::getConnection() {
 void Database::insertChunk(const fs::path &filename, int chunkNumber,
                            int totalChunk, int filesize, int chunksize,
                            const std::string &hash, const fs::path &filePath,
-                           uint64_t chunkOffset) {
+                           uint64_t chunkOffset,
+                           const std::string &transferId) {
   auto conn = getConnection();
   std::unique_ptr<TransactionGuard> local_tx;
   if (!m_isTransactionActive) {
@@ -570,8 +593,8 @@ void Database::insertChunk(const fs::path &filename, int chunkNumber,
 
   std::string sql =
       "INSERT INTO chunks (filename, chunk_number, total_chunk, hash, "
-      "file_path, file_size, chunk_size, chunk_offset) VALUES (?, ?, ?, ?, ?, "
-      "?, ?, ?);";
+      "file_path, file_size, chunk_size, chunk_offset, transfer_id) VALUES (?, "
+      "?, ?, ?, ?, ?, ?, ?, ?);";
 
   try {
     SQLiteStatement stmt(conn->get(), sql);
@@ -583,6 +606,7 @@ void Database::insertChunk(const fs::path &filename, int chunkNumber,
     stmt.bindInt(6, filesize);
     stmt.bindInt(7, chunksize);
     stmt.bindInt64(8, static_cast<int64_t>(chunkOffset));
+    stmt.bindText(9, transferId);
     stmt.step();
     if (local_tx) {
       local_tx->commit();
@@ -613,7 +637,8 @@ void Database::insertChunk(const fs::path &filename, int chunkNumber,
 void Database::insertChunk(const fs::path &filename, int chunkNumber,
                            int totalChunk, int filesize, int chunksize,
                            const std::string &hash, const fs::path &filePath,
-                           const std::string &status, uint64_t chunkOffset) {
+                           const std::string &status, uint64_t chunkOffset,
+                           const std::string &transferId) {
   auto conn = getConnection();
   std::unique_ptr<TransactionGuard> local_tx;
   if (!m_isTransactionActive) {
@@ -622,7 +647,8 @@ void Database::insertChunk(const fs::path &filename, int chunkNumber,
 
   std::string sql = "INSERT INTO chunks (filename, chunk_number, total_chunk, "
                     "hash, file_path, file_size, chunk_size, status, "
-                    "chunk_offset) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
+                    "chunk_offset, transfer_id) VALUES (?, ?, ?, ?, ?, ?, ?, "
+                    "?, ?, ?);";
 
   try {
     SQLiteStatement stmt(conn->get(), sql);
@@ -635,6 +661,7 @@ void Database::insertChunk(const fs::path &filename, int chunkNumber,
     stmt.bindInt(7, chunksize);
     stmt.bindText(8, status);
     stmt.bindInt64(9, static_cast<int64_t>(chunkOffset));
+    stmt.bindText(10, transferId);
     stmt.step();
     if (local_tx) {
       local_tx->commit();
@@ -663,7 +690,7 @@ std::vector<ChunkMetadata> Database::getPendingChunks(int beforeAbandoned) {
   std::vector<ChunkMetadata> chunks;
   auto conn = getConnection();
   std::string sql = "SELECT filename, chunk_number, total_chunk, chunk_size, "
-                    "hash, file_path, retries, chunk_offset FROM chunks WHERE status in "
+                    "hash, file_path, retries, chunk_offset, transfer_id FROM chunks WHERE status in "
                     "('pending', 'failed') AND retries < ?;";
 
   try {
@@ -674,6 +701,7 @@ std::vector<ChunkMetadata> Database::getPendingChunks(int beforeAbandoned) {
                           stmt.getInt(3), stmt.getText(4), stmt.getText16(5),
                           stmt.getInt(6));
       chunks.back().setChunkOffset(static_cast<uint64_t>(stmt.getInt64(7)));
+      chunks.back().setTransferId(stmt.getText(8));
     }
   } catch (const std::exception &e) {
     logError("Failed to get pending chunks: " + std::string(e.what()));

@@ -136,6 +136,10 @@ public:
     serverAddress_ = serverAddress;
   }
 
+  void setTransferId(const std::string &transferId) {
+    transferId_ = transferId;
+  }
+
   void setData(const std::vector<char> &data) {
     data_ = data;
     dataSize_ = data.size();
@@ -146,6 +150,7 @@ public:
   std::string getClientAddress() const { return clientAddress_; }
 
   std::string getServerAddress() const { return serverAddress_; }
+  const std::string &getTransferId() const { return transferId_; }
   /**
    * @brief Gets the name of the original file.
    * @return Name of the file.
@@ -206,6 +211,7 @@ public:
 private:
   std::string clientAddress_; /**< Address of the client that sent the chunk */
   std::string serverAddress_; /**< Address of the server that sent the chunk */
+  std::string transferId_;   /**< Stable SHA-256 identity of the transfer */
   std::string filename_;      /**< Name of the original file */
   int chunkNumber_;           /**< Index of the current chunk */
   int totalChunk_;            /**< Total number of chunks in the file */

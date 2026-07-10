@@ -10,6 +10,9 @@
 
 namespace {
 
+constexpr const char *kTestTransferId =
+    "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+
 void appendU32(std::vector<char> &out, uint32_t value) {
   const uint32_t network = htonl(value);
   const char *ptr = reinterpret_cast<const char *>(&network);
@@ -30,11 +33,13 @@ std::vector<char>
 buildPacket(const std::string &filename, const std::string &directory,
             const std::string &serverAddress, uint32_t chunkNumber,
             uint32_t totalChunks, uint64_t chunkOffset, uint64_t totalFileSize,
-            const std::string &hash, const std::vector<char> &chunkData) {
+            const std::string &hash, const std::vector<char> &chunkData,
+            const std::string &transferId = kTestTransferId) {
   std::vector<char> payload;
   appendString(payload, filename);
   appendString(payload, directory);
   appendString(payload, serverAddress);
+  appendString(payload, transferId);
   appendU32(payload, chunkNumber);
   appendU32(payload, totalChunks);
   appendU64(payload, chunkOffset);
@@ -73,6 +78,8 @@ void runChunkPacketParserTests(TestStats &stats) {
         require(chunk.getDirectory() == "incoming", "Directory mismatch");
         require(chunk.getServerAddress() == "127.0.0.1",
                 "Server address mismatch");
+        require(chunk.getTransferId() == kTestTransferId,
+                "Transfer id mismatch");
         require(chunk.getChunkNumber() == 0, "Chunk number mismatch");
         require(chunk.getTotalChunk() == 2, "Total chunk mismatch");
         require(chunk.getHash() == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "Hash mismatch");
@@ -107,6 +114,7 @@ void runChunkPacketParserTests(TestStats &stats) {
         appendString(payload, "file.bin");
         appendString(payload, "incoming");
         appendString(payload, "127.0.0.1");
+        appendString(payload, kTestTransferId);
         appendU32(payload, 0);
         appendU32(payload, 1);
         appendU64(payload, 0);   // chunkOffset
@@ -218,16 +226,23 @@ void runChunkPacketParserTests(TestStats &stats) {
       [&]() {
         const std::string key =
             "0123456789abcdef0123456789abcdef-secure-test-key";
+        const std::string sessionId = "00112233445566778899aabbccddeeff";
         auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 0, 1, 0,
                                   100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x', 'y', 'z'});
 
-        auto encrypted = SecurePacket::EncryptPacket(packet, key);
+        auto encrypted = SecurePacket::EncryptPacket(packet, key, sessionId, 1);
         require(SecurePacket::IsEncryptedPacket(encrypted),
                 "Encrypted packet should be marked with secure magic");
         require(encrypted != packet,
                 "Encrypted packet should differ from plaintext packet");
 
-        auto decrypted = SecurePacket::DecryptPacket(encrypted, key);
+        SecurePacket::SessionMetadata metadata;
+        require(SecurePacket::TryGetSessionMetadata(encrypted, metadata),
+                "Encrypted packet should expose session metadata");
+        require(metadata.sessionId == sessionId && metadata.sequenceNumber == 1,
+                "Encrypted packet should preserve session metadata");
+        auto decrypted =
+            SecurePacket::DecryptPacket(encrypted, key, sessionId, &metadata);
         require(decrypted == packet, "Decrypted packet should match plaintext");
 
         ChunkMetadata chunk;
@@ -242,18 +257,70 @@ void runChunkPacketParserTests(TestStats &stats) {
       [&]() {
         const std::string key =
             "0123456789abcdef0123456789abcdef-secure-test-key";
+        const std::string sessionId = "00112233445566778899aabbccddeeff";
         auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 0, 1, 0,
                                   100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x'});
-        auto encrypted = SecurePacket::EncryptPacket(packet, key);
+        auto encrypted = SecurePacket::EncryptPacket(packet, key, sessionId, 1);
         encrypted.back() ^= 0x01;
 
         bool rejected = false;
         try {
-          (void)SecurePacket::DecryptPacket(encrypted, key);
+          (void)SecurePacket::DecryptPacket(encrypted, key, sessionId);
         } catch (const std::exception &) {
           rejected = true;
         }
         require(rejected, "Tampered encrypted packet should be rejected");
+      },
+      stats);
+
+  runTest(
+      "ChunkPacketParser rejects invalid transfer identity",
+      [&]() {
+        const auto packet = buildPacket(
+            "file.bin", "incoming", "127.0.0.1", 0, 1, 0, 1,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            {'x'}, "not-a-valid-transfer-id");
+
+        ChunkMetadata chunk;
+        std::string error;
+        require(!ChunkPacketParser::Parse(packet, chunk, &error),
+                "Invalid transfer identity must be rejected");
+        require(error.find("transfer id") != std::string::npos,
+                "Parser should identify the invalid transfer id");
+      },
+      stats);
+
+  runTest(
+      "SecurePacket rejects a different session and tampered sequence",
+      [&]() {
+        const std::string key =
+            "0123456789abcdef0123456789abcdef-secure-test-key";
+        const std::string sessionId = "00112233445566778899aabbccddeeff";
+        auto packet = buildPacket("file.bin", "incoming", "127.0.0.1", 0, 1, 0,
+                                  100, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", {'x'});
+        auto encrypted = SecurePacket::EncryptPacket(packet, key, sessionId, 5);
+
+        bool wrongSessionRejected = false;
+        try {
+          (void)SecurePacket::DecryptPacket(
+              encrypted, key, "ffeeddccbbaa99887766554433221100");
+        } catch (const std::exception &) {
+          wrongSessionRejected = true;
+        }
+        require(wrongSessionRejected,
+                "Packet from another session should be rejected");
+
+        const size_t sequenceOffset = sizeof(uint32_t) + SecurePacket::kMagicSize +
+                                      sizeof(uint32_t) * 2U;
+        encrypted[sequenceOffset + sizeof(uint64_t) - 1] ^= 0x01;
+        bool tamperedSequenceRejected = false;
+        try {
+          (void)SecurePacket::DecryptPacket(encrypted, key, sessionId);
+        } catch (const std::exception &) {
+          tamperedSequenceRejected = true;
+        }
+        require(tamperedSequenceRejected,
+                "Authenticated sequence metadata should reject tampering");
       },
       stats);
 
@@ -263,12 +330,18 @@ void runChunkPacketParserTests(TestStats &stats) {
         const std::string key =
             "0123456789abcdef0123456789abcdef-secure-test-key";
         const std::string message = "SUCCESS_FILE_COMPLETE";
+        const std::string sessionId = "00112233445566778899aabbccddeeff";
 
-        auto encrypted = SecurePacket::EncryptControlMessage(message, key);
+        auto encrypted =
+            SecurePacket::EncryptControlMessage(message, key, sessionId, 3);
         require(SecurePacket::IsEncryptedPacket(encrypted),
                 "Encrypted control message should use secure packet envelope");
-        require(SecurePacket::DecryptControlMessage(encrypted, key) == message,
+        SecurePacket::SessionMetadata metadata;
+        require(SecurePacket::DecryptControlMessage(encrypted, key, sessionId,
+                                                     &metadata) == message,
                 "Decrypted control message should match plaintext");
+        require(metadata.sequenceNumber == 3,
+                "Control message should preserve its sequence number");
       },
       stats);
 

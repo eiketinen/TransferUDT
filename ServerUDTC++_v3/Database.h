@@ -41,7 +41,8 @@ public:
 
   void insertChunk(const std::string &client, const std::string &filename,
                    int chunkNumber, int totalChunk, const std::string &hash,
-                   const fs::path &filePath);
+                   const fs::path &filePath,
+                   const std::string &transferId = "");
   void updateChunkStatus(const std::string &client, const std::string &filename,
                          int chunkNumber, const std::string &status);
   int getTotalChunkCount(const std::string &client,
@@ -55,9 +56,14 @@ public:
                          int chunkNumber);
   bool isFileReconstructed(const std::string &client,
                            const std::string &filename);
+  std::string getActiveTransferId(const std::string &client,
+                                  const std::string &filename);
+  std::string getReconstructedTransferId(const std::string &client,
+                                         const std::string &filename);
 
   void addReconstructedFile(const std::string &clientAddress,
-                            const std::string &filename, const fs::path &path);
+                            const std::string &filename, const fs::path &path,
+                            const std::string &transferId = "");
   void deleteReconstructedFile(const std::string &clientAddress,
                                const std::string &filename);
   void deleteChunksByFile(const std::string &clientAddress,

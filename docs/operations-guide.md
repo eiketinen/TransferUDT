@@ -2,6 +2,23 @@
 
 Este guia cobre rotina de operacao, monitoramento e resposta a falhas.
 
+## Retomada apos interrupcao
+
+O Agent persiste o identificador da transferencia, offsets e chunks pendentes
+no SQLite local. Se o processo for encerrado durante um envio, o proximo inicio
+recupera o estado `processing`, reenvia os chunks necessarios e aceita o ACK
+idempotente dos chunks que o Server ja havia armazenado. O Server nao mistura
+chunks de identificadores de transferencia diferentes.
+
+Para validar esse comportamento em uma instalacao de teste:
+
+```powershell
+.\scripts\e2e-production-readiness.ps1 -Configuration Release -Architecture x64 -ScenarioName agent-restart-resume -KeepRunRoot
+```
+
+O cenario somente passa quando o Agent reiniciado conclui o arquivo com o mesmo
+SHA-256 e o Server registra a rejeicao idempotente do chunk duplicado.
+
 ## Servicos
 
 Verificar estado:

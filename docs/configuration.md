@@ -92,6 +92,21 @@ can be resent correctly even when chunk sizes differ.
 
 `chunk.adaptive.max_kb` is capped to the protocol maximum of 4 MB.
 
+## Transfer Recovery and Retry
+
+Each file transfer carries a stable `transfer_id` derived from its content.
+The Agent persists pending and failed chunks, including their byte offsets, so
+an interrupted process can resume from the local database. On Server startup,
+transfers left in `processing` state are recovered through the normal retry
+path. A repeated chunk for the same transfer is idempotent; a new transfer for
+the same logical file must restart with chunk zero so an incomplete previous
+transfer cannot be mixed with it.
+
+The retry worker uses the configured pending interval and bounded retry count.
+Jitter is added to retry delays to avoid synchronized retries from multiple
+Agents. A transfer is abandoned after `max.retries.abandon` attempts and can
+then be investigated or requeued through the operational workflow.
+
 ## Changed-Content Resend
 
 ```properties

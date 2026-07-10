@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <thread>
 
 /**
@@ -21,10 +22,9 @@
 namespace {
 constexpr const char *RESPONSE_FILE_ALREADY_EXISTS = "FILE_ALREADY_EXISTS";
 
-uint32_t maxSecureControlContentLength() {
-  return SecurePacket::kMagicSize + (sizeof(uint32_t) * 4U) +
-         SecurePacket::kNonceSize + SecurePacket::kTagSize +
-         sizeof(uint32_t) + SecurePacket::kMaxControlMessageBytes;
+uint64_t maxSecureControlContentLength() {
+  return SecurePacket::MaxSessionEncryptedContentLength(
+      sizeof(uint32_t) + SecurePacket::kMaxControlMessageBytes);
 }
 
 std::string buildAuthenticatedClientNamespace(const std::string &clientIp,
@@ -197,7 +197,8 @@ void ClientHandler::handleClient() {
           circuitBreaker.reportFailure();
           return;
         }
-        connectionPreSharedKey = clientPreSharedKey;
+        connectionPreSharedKey = SecurityHandshake::DerivePskSessionSecret(
+            challenge, clientPreSharedKey, clientIdentity);
         clientNamespace =
             buildAuthenticatedClientNamespace(clientNoPort, clientIdentity);
       }
@@ -205,6 +206,26 @@ void ClientHandler::handleClient() {
       Logger::getInstance().error("HandleClient",
                                   "Authentication handshake error for {}: {}",
                                   client, e.what());
+      circuitBreaker.reportFailure();
+      return;
+    }
+  }
+
+  if (ServerConfig::getInstance().isSecurityEnabled()) {
+    try {
+      connectionSessionId = SecurityHandshake::CreateSessionId();
+      if (!connection.sendString(SecurityHandshake::BuildSecureSessionMessage(
+              connectionSessionId, connectionPreSharedKey))) {
+        Logger::getInstance().error(
+            "HandleClient",
+            "Failed to send authenticated secure session to client");
+        circuitBreaker.reportFailure();
+        return;
+      }
+    } catch (const std::exception &e) {
+      Logger::getInstance().error(
+          "HandleClient", "Failed to establish secure session for {}: {}",
+          client, e.what());
       circuitBreaker.reportFailure();
       return;
     }
@@ -236,12 +257,10 @@ void ClientHandler::handleClient() {
       if (totalLength == 0) {
         throw std::runtime_error("Invalid total length received");
       }
-      uint32_t maxAllowedPacketSize = ChunkPacketParser::kMaxPacketSizeBytes;
+      uint64_t maxAllowedPacketSize = ChunkPacketParser::kMaxPacketSizeBytes;
       if (ServerConfig::getInstance().isSecurityEnabled()) {
-        maxAllowedPacketSize +=
-            sizeof(uint32_t) + SecurePacket::kMagicSize +
-            (sizeof(uint32_t) * 4U) + SecurePacket::kNonceSize +
-            SecurePacket::kTagSize;
+        maxAllowedPacketSize = SecurePacket::MaxSessionEncryptedContentLength(
+            ChunkPacketParser::kMaxPacketSizeBytes);
       }
       if (totalLength > maxAllowedPacketSize) {
         throw std::runtime_error("Packet exceeds maximum allowed size");
@@ -260,15 +279,31 @@ void ClientHandler::handleClient() {
           throw std::runtime_error(
               "Unencrypted packet rejected while security is enabled.");
         }
-        std::string nonceHex;
-        if (!SecurePacket::TryGetNonceHex(buffer, nonceHex)) {
-          throw std::runtime_error("Invalid secure packet nonce.");
+        if (connectionSessionId.empty()) {
+          connection.close();
+          running = false;
+          throw std::runtime_error("Secure session was not established.");
         }
-        if (!seenSecureNonces.insert(nonceHex).second) {
-          throw std::runtime_error("Replay detected for secure packet nonce.");
+        try {
+          SecurePacket::SessionMetadata metadata;
+          buffer = SecurePacket::DecryptPacket(
+              buffer, connectionPreSharedKey, connectionSessionId, &metadata);
+          if (expectedSecureInboundSequence ==
+                  (std::numeric_limits<uint64_t>::max)() ||
+              metadata.sequenceNumber != expectedSecureInboundSequence) {
+            connection.close();
+            running = false;
+            throw std::runtime_error(
+                "Replay or out-of-order secure packet rejected.");
+          }
+          ++expectedSecureInboundSequence;
+        } catch (const std::exception &) {
+          if (connection.isConnected()) {
+            connection.close();
+          }
+          running = false;
+          throw;
         }
-        buffer = SecurePacket::DecryptPacket(
-            buffer, connectionPreSharedKey);
       }
 
       ChunkMetadata chunk;
@@ -397,8 +432,13 @@ bool ClientHandler::sendControlMessage(const std::string &message) {
   }
 
   try {
+    if (connectionSessionId.empty() ||
+        nextSecureOutboundSequence == (std::numeric_limits<uint64_t>::max)()) {
+      throw std::runtime_error("Secure control session sequence is unavailable.");
+    }
     std::vector<char> encrypted = SecurePacket::EncryptControlMessage(
-        message, connectionPreSharedKey);
+        message, connectionPreSharedKey, connectionSessionId,
+        nextSecureOutboundSequence++);
     return connection.sendAll(encrypted.data(), static_cast<int>(encrypted.size()));
   } catch (const std::exception &e) {
     Logger::getInstance().error("SendControlMessage",
@@ -433,18 +473,26 @@ bool ClientHandler::receiveControlMessage(std::string &message) {
     return false;
   }
 
-  std::string nonceHex;
-  if (!SecurePacket::TryGetNonceHex(buffer, nonceHex) ||
-      !seenSecureNonces.insert(nonceHex).second) {
+  if (connectionSessionId.empty()) {
     Logger::getInstance().warning("ReceiveControlMessage",
-                                  "Invalid or replayed secure control nonce");
+                                  "Secure control received without session state");
     connection.close();
     return false;
   }
 
   try {
+    SecurePacket::SessionMetadata metadata;
     message = SecurePacket::DecryptControlMessage(
-        buffer, connectionPreSharedKey);
+        buffer, connectionPreSharedKey, connectionSessionId, &metadata);
+    if (expectedSecureInboundSequence ==
+            (std::numeric_limits<uint64_t>::max)() ||
+        metadata.sequenceNumber != expectedSecureInboundSequence) {
+      Logger::getInstance().warning("ReceiveControlMessage",
+                                    "Replayed or out-of-order secure control packet");
+      connection.close();
+      return false;
+    }
+    ++expectedSecureInboundSequence;
     return true;
   } catch (const std::exception &e) {
     Logger::getInstance().warning("ReceiveControlMessage",

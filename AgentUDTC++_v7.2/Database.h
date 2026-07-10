@@ -56,13 +56,15 @@ public:
   /// Inserts chunk metadata with default status behavior.
   void insertChunk(const fs::path &filename, int chunkNumber, int totalChunk,
                    int filesize, int chunksize, const std::string &hash,
-                   const fs::path &filePath, uint64_t chunkOffset = 0);
+                   const fs::path &filePath, uint64_t chunkOffset = 0,
+                   const std::string &transferId = "");
 
   /// Inserts chunk metadata with an explicit status value.
   void insertChunk(const fs::path &filename, int chunkNumber, int totalChunk,
                    int filesize, int chunksize, const std::string &hash,
                    const fs::path &filePath, const std::string &status,
-                   uint64_t chunkOffset = 0);
+                   uint64_t chunkOffset = 0,
+                   const std::string &transferId = "");
 
   /// Returns pending chunks that match the abandonment age threshold.
   std::vector<ChunkMetadata> getPendingChunks(int beforeAbandoned);

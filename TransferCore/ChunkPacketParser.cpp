@@ -218,6 +218,27 @@ bool Parse(const std::vector<char> &buffer, ChunkMetadata &chunk,
   chunk.setServerAddress(serverAddress);
   offset += serverAddressLen;
 
+  uint32_t transferIdLen = 0;
+  if (!ReadUint32(buffer, offset, transferIdLen, errorMessage,
+                  "transferIdLen")) {
+    return false;
+  }
+  if (transferIdLen != kTransferIdHexLength) {
+    SetError(errorMessage, "Invalid transfer id length");
+    return false;
+  }
+  if (!EnsureAvailable(offset, bufferSize, transferIdLen, errorMessage,
+                       "transferId")) {
+    return false;
+  }
+  std::string transferId(buffer.data() + offset, transferIdLen);
+  if (!IsLowerHex(transferId)) {
+    SetError(errorMessage, "Invalid transfer id format");
+    return false;
+  }
+  chunk.setTransferId(transferId);
+  offset += transferIdLen;
+
   uint32_t chunkNumber = 0;
   if (!ReadUint32(buffer, offset, chunkNumber, errorMessage, "chunkNumber")) {
     return false;

@@ -4,6 +4,7 @@ param(
     [string]$Architecture = "x64",
     [string]$RunRoot = "",
     [int]$DefaultTimeoutSeconds = 180,
+    [string[]]$ScenarioName = @(),
     [switch]$KeepRunRoot
 )
 
@@ -17,8 +18,10 @@ function New-FreeTcpPort {
     for ($attempt = 0; $attempt -lt 100; $attempt++) {
         $candidate = Get-Random -Minimum 51000 -Maximum 60000
         $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $candidate)
+        $udp = [System.Net.Sockets.UdpClient]::new([System.Net.Sockets.AddressFamily]::InterNetwork)
         try {
             $listener.Start()
+            $udp.Client.Bind([System.Net.IPEndPoint]::new([System.Net.IPAddress]::Loopback, $candidate))
             return $candidate
         }
         catch {
@@ -26,9 +29,10 @@ function New-FreeTcpPort {
         }
         finally {
             $listener.Stop()
+            $udp.Dispose()
         }
     }
-    throw "Could not find an available local test port."
+    throw "Could not find a local test port available for both TCP and UDP."
 }
 
 function Convert-ToConfigPath([string]$Path) {
@@ -378,6 +382,8 @@ function New-ScenarioReport($Result) {
     $lines.Add("- Agent signed handshake evidence: $($Result.AgentSignedHandshake)")
     $lines.Add("- Server all-chunks-complete evidence: $($Result.ServerCompleted)")
     $lines.Add("- Agent file-complete evidence: $($Result.AgentCompleted)")
+    $lines.Add("- Agent restart executed: $($Result.AgentRestarted)")
+    $lines.Add("- Idempotent recovery evidence: $($Result.RecoveryEvidence)")
     $lines.Add("- Stored chunk lines: $($Result.StoredChunkLines)")
     $lines.Add("- Adaptive telemetry lines: $($Result.AdaptiveTelemetryLines)")
     $lines.Add("- Adaptive recommendation min bytes: $($Result.AdaptiveRecommendationMin)")
@@ -477,6 +483,7 @@ function Invoke-E2EScenario($Scenario, [string]$SuiteRoot, [string]$RepoRoot, [s
     $expectedOutcome = if ($Scenario.ExpectedOutcome) { [string]$Scenario.ExpectedOutcome } else { "success" }
     $fileCount = if ($Scenario.FileCount) { [int]$Scenario.FileCount } else { 1 }
     $changedContentResend = [bool]$Scenario.VerifyChangedContentResend
+    $restartAgentAfterFirstChunk = [bool]$Scenario.RestartAgentAfterFirstChunk
     $changedFilesServerPolicy = if ($Scenario.ChangedFilesServerPolicy) { [string]$Scenario.ChangedFilesServerPolicy } else { "overwrite" }
     $changedFilesAgentEnabled = "true"
     if ($Scenario.PSObject.Properties.Name -contains "ChangedFilesAgentEnabled") {
@@ -484,6 +491,9 @@ function Invoke-E2EScenario($Scenario, [string]$SuiteRoot, [string]$RepoRoot, [s
     }
     if ($changedContentResend -and ($expectedOutcome -ne "success" -or $fileCount -ne 1)) {
         throw "VerifyChangedContentResend requires one success scenario file."
+    }
+    if ($restartAgentAfterFirstChunk -and ($expectedOutcome -ne "success" -or $fileCount -ne 1)) {
+        throw "RestartAgentAfterFirstChunk requires one success scenario file."
     }
     $serverMaxFileSizeMb = if ($Scenario.ServerMaxFileSizeMb) { [int]$Scenario.ServerMaxFileSizeMb } else { 512 }
     $serverAllowedClientId = if ($Scenario.ServerAllowedClientId) { [string]$Scenario.ServerAllowedClientId } else { $safeClientId }
@@ -610,6 +620,8 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
         AgentSignedHandshake = $false
         ServerCompleted = $false
         AgentCompleted = $false
+        AgentRestarted = $false
+        RecoveryEvidence = $false
         StoredChunkLines = 0
         AdaptiveTelemetryLines = 0
         AdaptiveRecommendationMin = 0
@@ -649,6 +661,19 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
             $inputPaths.Add($payloadPath)
             $expectedHashes.Add($expectedHash)
             $result.PayloadRelativePath = $payloadRelativePath
+
+            if ($restartAgentAfterFirstChunk -and $fileIndex -eq 1) {
+                Wait-ForLogText $serverLog "Stored chunk|Successfully saved chunk 0" 30 $serverProcess "server"
+                Stop-TransferProcess $agentProcess
+                $agentProcess = $null
+                Start-Sleep -Milliseconds 500
+                $agentProcess = Start-TransferProcess "agent-restarted" $agentExe
+                Start-Sleep -Milliseconds 1000
+                if ($agentProcess.HasExited) {
+                    throw "Restarted Agent exited unexpectedly. ExitCode=$($agentProcess.ExitCode)"
+                }
+                $result.AgentRestarted = $true
+            }
 
             if ($expectedOutcome -eq "success") {
                 $outputPath = Wait-ForReconstructedFile $serverReconstructed $payloadName ([int64]$Scenario.PayloadBytes) $expectedHash $timeoutSeconds
@@ -732,6 +757,7 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
         $result.AgentSignedHandshake = $agentText -match "Signed authentication succeeded"
         $result.ServerCompleted = $serverText -match "All chunks received for file"
         $result.AgentCompleted = $agentText -match "File processing completed"
+        $result.RecoveryEvidence = $serverText -match "already stored successfully.*duplicate without updating counters"
         $result.ServerReplacementEvidence = $serverText -match "Replacing managed output"
         $result.ServerVersioningEvidence = $serverText -match "Versioning managed output|Versioning incoming output"
         $result.StoredChunkLines = (Get-Matches $serverText "Stored chunk|Stored adaptive").Count
@@ -773,6 +799,8 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
                 $result.ReplacementExpectedHash -eq $result.ReplacementActualHash -and
                 $serverPolicyEvidence
         }
+        $recoveryOk = (-not $restartAgentAfterFirstChunk) -or
+            ($result.AgentRestarted -and $result.RecoveryEvidence)
 
         if ($expectedOutcome -eq "success") {
             $hashOk = $actualHashes.Count -eq $expectedHashes.Count
@@ -792,12 +820,16 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
                 $result.ServerCompleted -and
                 $result.AgentCompleted -and
                 $adaptiveOk -and
-                $changedContentOk
+                $changedContentOk -and
+                $recoveryOk
             if (-not $result.Passed -and $Scenario.AdaptiveEnabled -and $Scenario.RequireAdaptiveVariation -and -not $adaptiveOk) {
                 $result.Error = "Adaptive telemetry did not show required chunk recommendation variation."
             }
             elseif (-not $result.Passed -and $changedContentResend -and -not $changedContentOk) {
                 $result.Error = "Changed-content resend did not replace the managed output with server evidence."
+            }
+            elseif (-not $result.Passed -and $restartAgentAfterFirstChunk -and -not $recoveryOk) {
+                $result.Error = "Agent restart completed without idempotent duplicate-chunk recovery evidence."
             }
             elseif (-not $result.Passed -and -not $hashOk) {
                 $result.Error = "One or more reconstructed files did not match the expected SHA-256."
@@ -943,6 +975,17 @@ $scenarios = @(
         RequireAdaptiveVariation = $false
     },
     [pscustomobject]@{
+        Name = "agent-restart-resume"
+        Description = "Agent is terminated after the first persisted chunk and must resume idempotently from its existing database."
+        PayloadBytes = 8MB
+        ChunkKb = 64
+        AdaptiveEnabled = $false
+        AckPattern = @(75)
+        RestartAgentAfterFirstChunk = $true
+        TimeoutSeconds = 150
+        RequireAdaptiveVariation = $false
+    },
+    [pscustomobject]@{
         Name = "same-path-changed-content-resend"
         Description = "Same watched path is rewritten with different content and must replace the managed server output."
         PayloadBytes = 1MB
@@ -1007,6 +1050,15 @@ $scenarios = @(
         RequireAdaptiveVariation = $false
     }
 )
+
+if ($ScenarioName.Count -gt 0) {
+    foreach ($requestedName in $ScenarioName) {
+        if (-not ($scenarios | Where-Object { $_.Name -eq $requestedName })) {
+            throw "Unknown E2E scenario '$requestedName'."
+        }
+    }
+    $scenarios = @($scenarios | Where-Object { $ScenarioName -contains $_.Name })
+}
 
 $results = New-Object System.Collections.Generic.List[object]
 Write-Host "Production readiness E2E suite root: $RunRoot"

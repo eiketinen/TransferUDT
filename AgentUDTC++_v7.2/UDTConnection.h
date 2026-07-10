@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -139,6 +140,11 @@ public:
 
     void setSecureSessionKey(std::string key) { secureSessionKey = std::move(key); }
     const std::string& getSecureSessionKey() const { return secureSessionKey; }
+    void setSecureSessionId(std::string sessionId);
+    bool hasSecureSessionId() const { return !secureSessionId.empty(); }
+    const std::string& getSecureSessionId() const { return secureSessionId; }
+    uint64_t takeNextSecureOutboundSequence();
+    bool acceptSecureInboundSequence(uint64_t sequenceNumber);
 
 private:
     // UDT socket
@@ -151,4 +157,7 @@ private:
     std::string serverHost;
     int serverPort;
     std::string secureSessionKey;
+    std::string secureSessionId;
+    uint64_t nextSecureOutboundSequence{1};
+    uint64_t expectedSecureInboundSequence{1};
 };

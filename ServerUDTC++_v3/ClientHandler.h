@@ -6,9 +6,9 @@
 #include "CircuitBreaker.h"
 #include "Logger.h"
 #include <vector>
+#include <cstdint>
 #include <stdexcept> // Para std::runtime_error
 #include <memory> 
-#include <unordered_set>
 
 class ClientHandler {
 public:
@@ -23,8 +23,10 @@ private:
     std::shared_ptr<FileReceiver> fileReceiver; // Usa shared_ptr se múltiplas threads acessam o mesmo FileReceiver
     bool running = true;
     CircuitBreaker circuitBreaker;
-    std::unordered_set<std::string> seenSecureNonces;
     std::string connectionPreSharedKey;
+    std::string connectionSessionId;
+    uint64_t nextSecureOutboundSequence = 1;
+    uint64_t expectedSecureInboundSequence = 1;
     bool sendControlMessage(const std::string& message);
     bool receiveControlMessage(std::string& message);
     bool sendErrorToClient(const std::string& message);

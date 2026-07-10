@@ -99,7 +99,8 @@ std::string makeLongRelativeDirectory() {
 ChunkMetadata buildChunk(const std::string &client,
                          const std::string &directory,
                          const std::string &filename, int chunkNumber,
-                         int totalChunks, const std::string &hash) {
+                         int totalChunks, const std::string &hash,
+                         const std::string &transferId = "") {
   ChunkMetadata chunk;
   chunk.setClientAddress(client);
   chunk.setDirectory(directory);
@@ -107,6 +108,7 @@ ChunkMetadata buildChunk(const std::string &client,
   chunk.setChunkNumber(chunkNumber);
   chunk.setTotalChunk(totalChunks);
   chunk.setHash(hash);
+  chunk.setTransferId(transferId);
   return chunk;
 }
 
@@ -463,6 +465,101 @@ void runFileReceiverTests(TestStats &stats, Database &db,
                 "Reconstructed file should exist after the final chunk");
         require(readBinaryFile(reconstructedPath) == "abcdef",
                 "Reconstructed file content should include each chunk once");
+      },
+      stats);
+
+  runTest(
+      "FileReceiver acknowledges completed transfer retry by identity",
+      [&]() {
+        ThreadPool pool(1);
+        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        FileReceiver receiver(db, std::move(verifier),
+                              ServerConfig::getInstance(), pool);
+        PoolStopGuard guard(pool);
+
+        const std::string client = "resilience-client";
+        const std::string directory = "lost_ack";
+        const std::string filename = "completed_retry.bin";
+        const std::string transferId =
+            "1111111111111111111111111111111111111111111111111111111111111111";
+        const std::string clientKey = client + "/" + directory;
+        const std::vector<char> data{'o', 'k'};
+
+        ChunkMetadata chunk = buildChunk(client, directory, filename, 0, 1,
+                                         "expected-hash", transferId);
+        chunk.setChunkOffset(0);
+        chunk.setTotalFileSize(data.size());
+
+        require(receiver.receiveChunk(chunk, data) ==
+                    FileReceiver::ReceiveResult::JustCompleted,
+                "Initial transfer should complete");
+        require(waitForReconstructedRow(db, clientKey, filename, 5000),
+                "Completed transfer should be persisted");
+        require(db.getReconstructedTransferId(clientKey, filename) ==
+                    transferId,
+                "Completed transfer identity should be persisted");
+        require(receiver.receiveChunk(chunk, data) ==
+                    FileReceiver::ReceiveResult::AlreadyCompleted,
+                "Retry after a lost final ACK should be idempotent");
+
+        const fs::path reconstructedPath =
+            fs::path(ServerConfig::getInstance().getReconstructedPath()) /
+            clientKey / filename;
+        require(readBinaryFile(reconstructedPath) == "ok",
+                "Idempotent retry must not rewrite completed content");
+      },
+      stats);
+
+  runTest(
+      "FileReceiver replaces interrupted transfer only from chunk zero",
+      [&]() {
+        ThreadPool pool(2);
+        auto verifier = std::make_unique<ConstantVerifier>("expected-hash");
+        FileReceiver receiver(db, std::move(verifier),
+                              ServerConfig::getInstance(), pool);
+        PoolStopGuard guard(pool);
+
+        const std::string client = "resilience-client";
+        const std::string directory = "partial_replace";
+        const std::string filename = "partial.bin";
+        const std::string transferA(64, 'a');
+        const std::string transferB(64, 'b');
+        const std::string clientKey = client + "/" + directory;
+
+        ChunkMetadata firstA = buildChunk(client, directory, filename, 0, 2,
+                                          "expected-hash", transferA);
+        firstA.setChunkOffset(0);
+        firstA.setTotalFileSize(6);
+        require(receiver.receiveChunk(firstA, {'o', 'l', 'd'}) ==
+                    FileReceiver::ReceiveResult::Stored,
+                "First interrupted transfer chunk should be stored");
+
+        ChunkMetadata nonFirstB = buildChunk(
+            client, directory, filename, 1, 2, "expected-hash", transferB);
+        nonFirstB.setChunkOffset(3);
+        nonFirstB.setTotalFileSize(6);
+        require(receiver.receiveChunk(nonFirstB, {'x', 'y', 'z'}) ==
+                    FileReceiver::ReceiveResult::Failed,
+                "A new transfer must not replace partial state mid-stream");
+
+        ChunkMetadata firstB = buildChunk(client, directory, filename, 0, 2,
+                                          "expected-hash", transferB);
+        firstB.setChunkOffset(0);
+        firstB.setTotalFileSize(6);
+        require(receiver.receiveChunk(firstB, {'n', 'e', 'w'}) ==
+                    FileReceiver::ReceiveResult::Stored,
+                "Chunk zero should replace stale partial transfer state");
+        require(db.getActiveTransferId(clientKey, filename) == transferB,
+                "Active state should belong to the replacement transfer");
+        require(receiver.receiveChunk(nonFirstB, {'1', '2', '3'}) ==
+                    FileReceiver::ReceiveResult::JustCompleted,
+                "Replacement transfer should complete normally");
+
+        const fs::path reconstructedPath =
+            fs::path(ServerConfig::getInstance().getReconstructedPath()) /
+            clientKey / filename;
+        require(waitForFileContent(reconstructedPath, "new123", 5000),
+                "Replacement content should be reconstructed without stale bytes");
       },
       stats);
 

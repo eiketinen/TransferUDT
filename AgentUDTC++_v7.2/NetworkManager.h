@@ -6,8 +6,6 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
-#include <mutex>
-#include <unordered_set>
 #include "AdaptiveChunkController.h"
 #include "UDTConnection.h"
 #include "CircuitBreaker.h"
@@ -123,8 +121,6 @@ private:
     std::string securityClientPrivateKeyPath;
     std::string securityServerPublicKeyPath;
     AdaptiveChunkController::Settings adaptiveChunkSettings;
-    std::mutex seenSecureControlNoncesMutex;
-    std::unordered_set<std::string> seenSecureControlNonces;
 
     // Retry and error handling
     int maxRetries;
@@ -149,6 +145,7 @@ private:
 
     std::vector<char> serializeChunkMessage(const std::string& filename, const std::string& directoryPath,
         const std::string& serverAddress,
+        const std::string& transferId,
         uint32_t chunkNumber, uint32_t totalChunks,
         uint64_t chunkOffset, uint64_t totalFileSize,
         const std::string& hash, const std::vector<char>& chunkData);

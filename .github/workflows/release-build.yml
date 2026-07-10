@@ -119,6 +119,16 @@ jobs:
             Write-Host "OK: $p ($((Get-Item $p).Length) bytes)"
           }
 
+      - name: Verify interrupted-transfer recovery (x64)
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          .\scripts\e2e-production-readiness.ps1 `
+            -Configuration Release `
+            -Architecture x64 `
+            -ScenarioName agent-restart-resume `
+            -KeepRunRoot
+
       - name: Upload artifacts (${{ matrix.arch }})
         uses: actions/upload-artifact@v4
         with:

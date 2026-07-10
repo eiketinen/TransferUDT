@@ -538,6 +538,17 @@ Get-Content C:\ProgramData\TransferUDT\Dashboard\logs\dashboard.log -Tail 200</c
           <button class="copy">Copiar</button>
           <pre><code>Compress-Archive -Path C:\ProgramData\TransferUDT -DestinationPath C:\Backups\TransferUDT-ProgramData.zip -Force</code></pre>
         </div>
+
+        <h3>Retomada apos interrupcao</h3>
+        <p>O Agent mantem no banco local os chunks pendentes, offsets e o
+          identificador da transferencia. Depois de uma parada inesperada, o
+          servico retoma o envio; chunks que o Server ja armazenou sao
+          reconhecidos de forma idempotente e nao alteram os contadores.</p>
+        <ul>
+          <li>Nao apague o banco local do Agent durante uma recuperacao.</li>
+          <li>Confirme nos logs o reenvio de chunks pendentes e a conclusao do arquivo.</li>
+          <li>Valide o SHA-256 do arquivo reconstruido antes de liberar o conteudo.</li>
+        </ul>
       </section>
 
       <section id="troubleshooting" data-search>

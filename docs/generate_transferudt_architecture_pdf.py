@@ -372,7 +372,7 @@ def security_page() -> Image.Image:
         ((90, 180, 420, 315), "Identidade forte", "PSK por cliente e allowlist de client_id.", COLORS["agent"], COLORS["agent_line"]),
         ((820, 180, 1150, 315), "Envelope criptográfico", "AES-256-GCM com chave derivada por HKDF.", COLORS["secure"], COLORS["secure_line"]),
         ((90, 420, 420, 555), "Isolamento de arquivos", "Namespace de storage baseado em client_id autenticado.", COLORS["server"], COLORS["server_line"]),
-        ((820, 420, 1150, 555), "Anti-replay", "Nonce por conexão e metadados autenticados.", COLORS["secure"], COLORS["secure_line"]),
+        ((820, 420, 1150, 555), "Anti-replay", "SessionId autenticado + sequence monotônico.", COLORS["secure"], COLORS["secure_line"]),
         ((90, 660, 420, 795), "Watcher seguro", "Rejeita symlinks/reparse points e valida caminho canônico.", COLORS["warn"], COLORS["warn_line"]),
         ((820, 660, 1150, 795), "ACK autenticado", "SUCCESS e FILE_ALREADY_EXISTS protegidos contra forja.", COLORS["secure"], COLORS["secure_line"]),
         ((90, 900, 420, 1035), "Quotas", "Limite por arquivo, por cliente e por armazenamento.", COLORS["warn"], COLORS["warn_line"]),
@@ -391,7 +391,7 @@ def security_page() -> Image.Image:
         1235,
         [
             "A autenticação usa PSK/HMAC, não cadeia de certificados ou mTLS.",
-            "A proteção anti-replay é por conexão; a idempotência e o banco reduzem duplicidade operacional.",
+            "A sessão rejeita replay, troca de sessão e ordem inválida; a idempotência reduz duplicidade operacional.",
             "Parâmetros de quota, allowlist e chaves por cliente precisam ser tratados como configuração de produção.",
         ],
         PAGE_W - 2 * MARGIN,
