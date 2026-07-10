@@ -69,6 +69,9 @@ public:
         std::string securityIdentityMode = "psk",
         std::string securityClientPrivateKeyPath = "",
         std::string securityServerPublicKeyPath = "",
+        std::string securityClientCertificatePath = "",
+        std::string securityCaBundlePath = "",
+        std::string securityServerIdentity = "",
         bool adaptiveChunkEnabled = false,
         uint64_t adaptiveChunkMinBytes = 32ULL * 1024ULL,
         uint64_t adaptiveChunkMaxBytes = 4ULL * 1024ULL * 1024ULL,
@@ -120,6 +123,9 @@ private:
     std::string securityIdentityMode;
     std::string securityClientPrivateKeyPath;
     std::string securityServerPublicKeyPath;
+    std::string securityClientCertificatePath;
+    std::string securityCaBundlePath;
+    std::string securityServerIdentity;
     AdaptiveChunkController::Settings adaptiveChunkSettings;
 
     // Retry and error handling

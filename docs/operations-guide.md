@@ -141,7 +141,8 @@ Dashboard vazio:
 ## Hardening operacional
 
 - Restringir acesso a `C:\ProgramData\TransferUDT`.
-- Usar PSK distinta por Agent ou `signed_handshake`.
+- Usar PSK distinta por Agent, `signed_handshake`, ou
+  `certificate_handshake` com PKI interna para maior garantia de identidade.
 - Usar certificado HTTPS emitido por CA interna.
 - Evitar `security.allow_insecure=true`.
 - Expor Dashboard apenas em rede administrativa.

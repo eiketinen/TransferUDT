@@ -88,7 +88,78 @@ void ClientHandler::handleClient() {
 
   if (ServerConfig::getInstance().isSecurityHandshakeEnabled()) {
     try {
-      if (ServerConfig::getInstance().isSignedIdentityMode()) {
+      if (ServerConfig::getInstance().isCertificateIdentityMode()) {
+        const auto serverEphemeral =
+            SecurityHandshake::CreateEphemeralKeyPair();
+        const SecurityHandshake::CertificateChallenge challenge{
+            SecurityHandshake::CreateChallenge(), serverEphemeral.publicKeyHex,
+            SecurityHandshake::LoadCertificateBundleHex(
+                ServerConfig::getInstance()
+                    .getSecurityServerCertificatePath())};
+        if (!connection.sendString(
+                SecurityHandshake::BuildCertificateChallengeMessage(
+                    challenge))) {
+          Logger::getInstance().error(
+              "HandleClient",
+              "Failed to send certificate authentication challenge");
+          circuitBreaker.reportFailure();
+          return;
+        }
+
+        std::string responseMessage;
+        SecurityHandshake::CertificateResponse response;
+        if (!connection.recvString(responseMessage) ||
+            !SecurityHandshake::TryParseCertificateResponseMessage(
+                responseMessage, response) ||
+            !ServerConfig::getInstance().isClientIdentityAllowed(
+                response.clientId)) {
+          Logger::getInstance().warning(
+              "HandleClient",
+              "Certificate authentication rejected client identity '{}' for {}",
+              response.clientId, client);
+          (void)connection.sendString(SecurityHandshake::kAuthFailed);
+          circuitBreaker.reportFailure();
+          return;
+        }
+
+        if (!SecurityHandshake::VerifyCertificateResponseMessage(
+                challenge, response,
+                ServerConfig::getInstance().getSecurityCaBundlePath())) {
+          Logger::getInstance().warning(
+              "HandleClient",
+              "Certificate authentication failed for client identity '{}'",
+              response.clientId);
+          (void)connection.sendString(SecurityHandshake::kAuthFailed);
+          circuitBreaker.reportFailure();
+          return;
+        }
+
+        const std::string okMessage =
+            SecurityHandshake::BuildCertificateOkMessage(
+                challenge, response,
+                ServerConfig::getInstance()
+                    .getSecurityServerPrivateKeyPath());
+        const std::string serverSignature = okMessage.substr(
+            std::string(SecurityHandshake::kCertificateOkPrefix).size());
+        connectionPreSharedKey =
+            SecurityHandshake::DeriveCertificateSessionSecret(
+                serverEphemeral.privateKeyHex,
+                response.clientEphemeralPublicKeyHex, challenge, response,
+                serverSignature);
+        clientNamespace =
+            buildAuthenticatedClientNamespace(clientNoPort, response.clientId);
+        Logger::getInstance().info(
+            "HandleClient",
+            "Certificate authentication succeeded for client identity '{}'",
+            response.clientId);
+
+        if (!connection.sendString(okMessage)) {
+          Logger::getInstance().error(
+              "HandleClient", "Failed to send certificate server proof");
+          circuitBreaker.reportFailure();
+          return;
+        }
+      } else if (ServerConfig::getInstance().isSignedIdentityMode()) {
         const auto serverEphemeral =
             SecurityHandshake::CreateEphemeralKeyPair();
         const SecurityHandshake::SignedChallenge challenge{

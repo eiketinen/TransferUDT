@@ -69,6 +69,39 @@ security.server_private_key_path = C:/ProgramData/TransferUDT/Server/keys/server
 security.client_public_key.agent-default = C:/ProgramData/TransferUDT/Server/clients/agent-default.pub
 ```
 
+For environments with an internal PKI, `certificate_handshake` adds mutual
+X.509 chain, purpose, and SAN/CN identity validation while retaining ephemeral
+X25519 session keys. It is an application-layer handshake over UDT, not TLS or
+DTLS encapsulation.
+
+Agent:
+
+```properties
+security.identity.mode = certificate_handshake
+security.client_id = agent-default
+security.client_private_key_path = C:/ProgramData/TransferUDT/Agent/pki/agent-default.key
+security.client_certificate_path = C:/ProgramData/TransferUDT/Agent/pki/agent-default-chain.pem
+security.ca_bundle_path = C:/ProgramData/TransferUDT/Agent/pki/ca.pem
+security.server_identity = transfer-server.example.internal
+```
+
+Server:
+
+```properties
+security.identity.mode = certificate_handshake
+security.allowed_client_ids = agent-default
+security.server_private_key_path = C:/ProgramData/TransferUDT/Server/pki/server.key
+security.server_certificate_path = C:/ProgramData/TransferUDT/Server/pki/server-chain.pem
+security.ca_bundle_path = C:/ProgramData/TransferUDT/Server/pki/ca.pem
+```
+
+The first PEM certificate in each transmitted bundle is the peer leaf; later
+certificates are intermediates. The bundle is limited to 24 KiB. Leaf EKU must
+be `serverAuth` or `clientAuth` for its role. Keep Windows time synchronized,
+stage files with service-account read ACLs, and restart both peers after a mode
+change. OCSP/CRL retrieval and automated enrollment or rotation are not yet
+implemented.
+
 ## Adaptive Chunk Sizing
 
 ```properties

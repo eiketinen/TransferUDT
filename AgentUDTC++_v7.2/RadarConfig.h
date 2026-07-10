@@ -157,11 +157,23 @@ public:
   bool isSignedIdentityMode() const {
     return securityIdentityMode == "signed_handshake";
   }
+  bool isCertificateIdentityMode() const {
+    return securityIdentityMode == "certificate_handshake";
+  }
   const std::string &getSecurityClientPrivateKeyPath() const {
     return securityClientPrivateKeyPath;
   }
   const std::string &getSecurityServerPublicKeyPath() const {
     return securityServerPublicKeyPath;
+  }
+  const std::string &getSecurityClientCertificatePath() const {
+    return securityClientCertificatePath;
+  }
+  const std::string &getSecurityCaBundlePath() const {
+    return securityCaBundlePath;
+  }
+  const std::string &getSecurityServerIdentity() const {
+    return securityServerIdentity;
   }
   bool isDashboardEnabled() const { return dashboardEnabled; }
   const std::string &getDashboardUrl() const { return dashboardUrl; }
@@ -284,6 +296,9 @@ private:
   std::string securityIdentityMode;
   std::string securityClientPrivateKeyPath;
   std::string securityServerPublicKeyPath;
+  std::string securityClientCertificatePath;
+  std::string securityCaBundlePath;
+  std::string securityServerIdentity;
   bool dashboardEnabled;
   std::string dashboardUrl;
   int dashboardHeartbeatIntervalSeconds;

@@ -458,8 +458,13 @@ begin
     'security.enabled = true' + #13#10 +
     'security.handshake.enabled = true' + #13#10 +
     'security.allow_insecure = false' + #13#10 +
+    'security.identity.mode = psk' + #13#10 +
     'security.client_id = ' + AgentPage.Values[2] + #13#10 +
-    'security.psk = ' + AgentPage.Values[3] + #13#10;
+    'security.psk = ' + AgentPage.Values[3] + #13#10 +
+    '# certificate_handshake advanced settings:' + #13#10 +
+    '# security.client_certificate_path = C:/ProgramData/TransferUDT/Agent/pki/agent-chain.pem' + #13#10 +
+    '# security.ca_bundle_path = C:/ProgramData/TransferUDT/Agent/pki/ca.pem' + #13#10 +
+    '# security.server_identity = transfer-server.example.internal' + #13#10;
 
   if (AgentPage.Values[4] <> '') and (AgentPage.Values[5] <> '') then
   begin
@@ -532,8 +537,13 @@ begin
     'security.enabled = true' + #13#10 +
     'security.handshake.enabled = true' + #13#10 +
     'security.allow_insecure = false' + #13#10 +
+    'security.identity.mode = psk' + #13#10 +
     'security.allowed_client_ids = ' + ServerPage.Values[3] + #13#10 +
-    'security.client_psk.' + ServerPage.Values[3] + ' = ' + ServerPage.Values[4] + #13#10;
+    'security.client_psk.' + ServerPage.Values[3] + ' = ' + ServerPage.Values[4] + #13#10 +
+    '# certificate_handshake advanced settings:' + #13#10 +
+    '# security.server_private_key_path = C:/ProgramData/TransferUDT/Server/pki/server.key' + #13#10 +
+    '# security.server_certificate_path = C:/ProgramData/TransferUDT/Server/pki/server-chain.pem' + #13#10 +
+    '# security.ca_bundle_path = C:/ProgramData/TransferUDT/Server/pki/ca.pem' + #13#10;
 
   SaveStringToFile(ConfigPath, Content, False);
 end;

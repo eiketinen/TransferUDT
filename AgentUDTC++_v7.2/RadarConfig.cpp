@@ -30,7 +30,8 @@ static bool isPlaceholderPsk(const std::string& value) {
 }
 
 static bool isValidIdentityMode(const std::string& value) {
-    return value == "psk" || value == "signed_handshake";
+    return value == "psk" || value == "signed_handshake" ||
+           value == "certificate_handshake";
 }
 
 static std::string normalizeLower(std::string value) {
@@ -434,6 +435,27 @@ RadarConfig::RadarConfig() {
         [](const std::string&) { return true; }
     );
 
+    securityClientCertificatePath = RadarConfig::loadConfigParam<std::string>(
+        configMap, "security.client_certificate_path", "",
+        "Security client certificate path invalid",
+        [](const std::string&) { return true; }
+    );
+
+    securityCaBundlePath = RadarConfig::loadConfigParam<std::string>(
+        configMap, "security.ca_bundle_path", "",
+        "Security CA bundle path invalid",
+        [](const std::string&) { return true; }
+    );
+
+    securityServerIdentity = RadarConfig::loadConfigParam<std::string>(
+        configMap, "security.server_identity", "",
+        "Security server identity invalid",
+        [](const std::string& value) {
+            return value.size() <= 253 &&
+                   value.find_first_of(" \t\r\n") == std::string::npos;
+        }
+    );
+
     dashboardEnabled = RadarConfig::loadConfigParam<bool>(
         configMap, "dashboard.enabled", DEFAULT_DASHBOARD_ENABLED,
         "Dashboard enabled must be true or false",
@@ -499,6 +521,18 @@ RadarConfig::RadarConfig() {
         if (securityClientPrivateKeyPath.empty() || securityServerPublicKeyPath.empty()) {
             throw std::runtime_error(
                 "signed_handshake requires security.client_private_key_path and security.server_public_key_path.");
+        }
+    }
+
+    if (securityIdentityMode == "certificate_handshake") {
+        if (!securityEnabled || !securityHandshakeEnabled) {
+            throw std::runtime_error(
+                "certificate_handshake requires security.enabled=true and security.handshake.enabled=true.");
+        }
+        if (securityClientPrivateKeyPath.empty() ||
+            securityClientCertificatePath.empty() || securityCaBundlePath.empty()) {
+            throw std::runtime_error(
+                "certificate_handshake requires security.client_private_key_path, security.client_certificate_path, and security.ca_bundle_path.");
         }
     }
 

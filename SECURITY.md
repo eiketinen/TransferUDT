@@ -32,13 +32,14 @@ TransferUDT currently supports:
 - AES-256-GCM packet confidentiality and integrity;
 - PSK challenge-response authentication with HMAC-SHA256;
 - optional per-client PSKs for authenticated client identities;
+- signed raw-key and CA-backed X.509 mutual identity profiles;
+- authenticated session IDs and strict replay/order protection;
 - rejection of plaintext packet transfer when secure mode is enabled.
 
 Known limitations:
 
 - PSK distribution and rotation are manual.
-- There is no certificate identity model yet.
-- Replay protection is limited to application-level chunk/idempotency behavior.
+- Certificate enrollment, renewal, and revocation remain manual.
 - mTLS is not implemented.
 
 Recommended production hardening:
@@ -47,4 +48,6 @@ Recommended production hardening:
 - store PSKs outside repository files;
 - isolate Server access with firewall rules;
 - monitor failed handshakes;
-- add mTLS or a certificate-backed identity layer before internet exposure.
+- use `certificate_handshake` with an internal CA for higher-assurance private
+  deployments; add a standardized mTLS gateway if required before internet
+  exposure.

@@ -1,14 +1,20 @@
 #include "SecurityHandshake.h"
 
 #include <openssl/bio.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/kdf.h>
 #include <openssl/pem.h>
 #include <openssl/rand.h>
+#include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
+#include <openssl/x509v3.h>
 
 #include <algorithm>
 #include <cctype>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -101,6 +107,25 @@ using EvpPkeyPtr = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>;
 using EvpMdCtxPtr = std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)>;
 using EvpPkeyCtxPtr = std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)>;
 using BioPtr = std::unique_ptr<BIO, decltype(&BIO_free)>;
+using X509Ptr = std::unique_ptr<X509, decltype(&X509_free)>;
+using X509StorePtr = std::unique_ptr<X509_STORE, decltype(&X509_STORE_free)>;
+using X509StoreCtxPtr =
+    std::unique_ptr<X509_STORE_CTX, decltype(&X509_STORE_CTX_free)>;
+
+struct X509StackDeleter {
+  void operator()(STACK_OF(X509) *stack) const {
+    if (stack != nullptr) {
+      sk_X509_pop_free(stack, X509_free);
+    }
+  }
+};
+
+using X509StackPtr = std::unique_ptr<STACK_OF(X509), X509StackDeleter>;
+
+struct ParsedCertificateBundle {
+  X509Ptr leaf{nullptr, X509_free};
+  X509StackPtr intermediates{nullptr};
+};
 
 EvpPkeyPtr loadPrivateKey(const std::string &path) {
   BioPtr bio(BIO_new_file(path.c_str(), "rb"), BIO_free);
@@ -124,6 +149,137 @@ EvpPkeyPtr loadPublicKey(const std::string &path) {
     throw std::runtime_error("Failed to read public key: " + path);
   }
   return EvpPkeyPtr(raw, EVP_PKEY_free);
+}
+
+std::vector<std::string> splitSpaceSeparated(const std::string &value) {
+  std::vector<std::string> parts;
+  size_t start = 0;
+  while (start <= value.size()) {
+    const size_t separator = value.find(' ', start);
+    if (separator == std::string::npos) {
+      parts.push_back(value.substr(start));
+      break;
+    }
+    parts.push_back(value.substr(start, separator - start));
+    start = separator + 1;
+  }
+  return parts;
+}
+
+void validateCertificateHex(const std::string &certificateHex) {
+  if (certificateHex.empty() || certificateHex.size() % 2 != 0 ||
+      certificateHex.size() >
+          SecurityHandshake::kMaxCertificateBundleBytes * 2 ||
+      !isLowerHex(certificateHex)) {
+    throw std::invalid_argument("Invalid certificate bundle.");
+  }
+}
+
+ParsedCertificateBundle
+parseCertificateBundle(const std::string &certificateHex) {
+  validateCertificateHex(certificateHex);
+  const auto bytes =
+      fromHex(certificateHex, certificateHex.size() / 2, "certificate bundle");
+  BioPtr bio(BIO_new_mem_buf(bytes.data(), static_cast<int>(bytes.size())),
+             BIO_free);
+  if (!bio) {
+    throw std::runtime_error("Failed to allocate certificate bundle reader.");
+  }
+
+  X509 *rawLeaf = PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr);
+  if (rawLeaf == nullptr) {
+    throw std::runtime_error("Certificate bundle does not contain a PEM certificate.");
+  }
+
+  ParsedCertificateBundle bundle;
+  bundle.leaf.reset(rawLeaf);
+  bundle.intermediates.reset(sk_X509_new_null());
+  if (!bundle.intermediates) {
+    throw std::runtime_error("Failed to allocate certificate chain.");
+  }
+
+  while (true) {
+    X509 *rawIntermediate =
+        PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr);
+    if (rawIntermediate == nullptr) {
+      ERR_clear_error();
+      break;
+    }
+    if (sk_X509_push(bundle.intermediates.get(), rawIntermediate) == 0) {
+      X509_free(rawIntermediate);
+      throw std::runtime_error("Failed to append certificate chain entry.");
+    }
+  }
+  return bundle;
+}
+
+bool certificateIdentityMatches(X509 *certificate,
+                                const std::string &expectedIdentity) {
+  if (certificate == nullptr || expectedIdentity.empty()) {
+    return false;
+  }
+  if (X509_check_ip_asc(certificate, expectedIdentity.c_str(), 0) == 1) {
+    return true;
+  }
+  return X509_check_host(certificate, expectedIdentity.c_str(),
+                         expectedIdentity.size(), 0, nullptr) == 1;
+}
+
+bool validateCertificateBundle(const std::string &certificateHex,
+                               const std::string &caBundlePath,
+                               const std::string &expectedIdentity,
+                               bool serverCertificate) {
+  if (caBundlePath.empty() || expectedIdentity.empty()) {
+    return false;
+  }
+  auto bundle = parseCertificateBundle(certificateHex);
+  X509StorePtr store(X509_STORE_new(), X509_STORE_free);
+  X509StoreCtxPtr context(X509_STORE_CTX_new(), X509_STORE_CTX_free);
+  if (!store || !context ||
+      X509_STORE_load_locations(store.get(), caBundlePath.c_str(), nullptr) !=
+          1 ||
+      X509_STORE_CTX_init(context.get(), store.get(), bundle.leaf.get(),
+                          bundle.intermediates.get()) != 1) {
+    return false;
+  }
+
+  const int purpose =
+      serverCertificate ? X509_PURPOSE_SSL_SERVER : X509_PURPOSE_SSL_CLIENT;
+  if (X509_STORE_CTX_set_purpose(context.get(), purpose) != 1 ||
+      X509_verify_cert(context.get()) != 1) {
+    return false;
+  }
+  return certificateIdentityMatches(bundle.leaf.get(), expectedIdentity);
+}
+
+bool certificateMatchesPrivateKey(const std::string &certificateHex,
+                                  const std::string &privateKeyPath) {
+  auto bundle = parseCertificateBundle(certificateHex);
+  auto privateKey = loadPrivateKey(privateKeyPath);
+  return X509_check_private_key(bundle.leaf.get(), privateKey.get()) == 1;
+}
+
+bool verifyCertificateSignatureHex(const std::string &message,
+                                   const std::string &signatureHex,
+                                   const std::string &certificateHex) {
+  if (signatureHex.empty() || signatureHex.size() % 2 != 0 ||
+      !isLowerHex(signatureHex)) {
+    return false;
+  }
+  auto signature =
+      fromHex(signatureHex, signatureHex.size() / 2, "signature");
+  auto bundle = parseCertificateBundle(certificateHex);
+  EvpPkeyPtr publicKey(X509_get_pubkey(bundle.leaf.get()), EVP_PKEY_free);
+  EvpMdCtxPtr context(EVP_MD_CTX_new(), EVP_MD_CTX_free);
+  if (!publicKey || !context ||
+      EVP_DigestVerifyInit(context.get(), nullptr, EVP_sha256(), nullptr,
+                           publicKey.get()) != 1 ||
+      EVP_DigestVerifyUpdate(context.get(), message.data(), message.size()) !=
+          1) {
+    return false;
+  }
+  return EVP_DigestVerifyFinal(context.get(), signature.data(),
+                               signature.size()) == 1;
 }
 
 std::string signMessageHex(const std::string &message,
@@ -208,6 +364,42 @@ std::string buildKdfTranscript(const SecurityHandshake::SignedChallenge &challen
          response.signatureHex + "|" + serverSignatureHex;
 }
 
+std::string buildCertificateClientTranscript(
+    const SecurityHandshake::CertificateChallenge &challenge,
+    const std::string &clientId, const std::string &clientNonceHex,
+    const std::string &clientEphemeralPublicKeyHex,
+    const std::string &clientCertificateHex) {
+  return "TransferUDT certificate handshake v1|client|" + clientId + "|" +
+         challenge.serverNonceHex + "|" +
+         challenge.serverEphemeralPublicKeyHex + "|" +
+         challenge.serverCertificateHex + "|" + clientNonceHex + "|" +
+         clientEphemeralPublicKeyHex + "|" + clientCertificateHex;
+}
+
+std::string buildCertificateServerTranscript(
+    const SecurityHandshake::CertificateChallenge &challenge,
+    const SecurityHandshake::CertificateResponse &response) {
+  return "TransferUDT certificate handshake v1|server|" + response.clientId +
+         "|" + challenge.serverNonceHex + "|" +
+         challenge.serverEphemeralPublicKeyHex + "|" +
+         challenge.serverCertificateHex + "|" + response.clientNonceHex +
+         "|" + response.clientEphemeralPublicKeyHex + "|" +
+         response.clientCertificateHex + "|" + response.signatureHex;
+}
+
+std::string buildCertificateKdfTranscript(
+    const SecurityHandshake::CertificateChallenge &challenge,
+    const SecurityHandshake::CertificateResponse &response,
+    const std::string &serverSignatureHex) {
+  return "TransferUDT certificate handshake v1|kdf|" + response.clientId +
+         "|" + challenge.serverNonceHex + "|" +
+         challenge.serverEphemeralPublicKeyHex + "|" +
+         challenge.serverCertificateHex + "|" + response.clientNonceHex +
+         "|" + response.clientEphemeralPublicKeyHex + "|" +
+         response.clientCertificateHex + "|" + response.signatureHex + "|" +
+         serverSignatureHex;
+}
+
 void validateSignedChallenge(const SecurityHandshake::SignedChallenge &challenge) {
   (void)fromHex(challenge.serverNonceHex, SecurityHandshake::kChallengeBytes,
                 "server nonce");
@@ -228,6 +420,33 @@ void validateSignedResponse(const SecurityHandshake::SignedResponse &response) {
   if (response.signatureHex.empty() || response.signatureHex.size() % 2 != 0 ||
       !isLowerHex(response.signatureHex)) {
     throw std::invalid_argument("Invalid signed handshake signature.");
+  }
+}
+
+void validateCertificateChallenge(
+    const SecurityHandshake::CertificateChallenge &challenge) {
+  (void)fromHex(challenge.serverNonceHex,
+                SecurityHandshake::kChallengeBytes, "server nonce");
+  (void)fromHex(challenge.serverEphemeralPublicKeyHex,
+                SecurityHandshake::kX25519KeyBytes,
+                "server ephemeral public key");
+  validateCertificateHex(challenge.serverCertificateHex);
+}
+
+void validateCertificateResponse(
+    const SecurityHandshake::CertificateResponse &response) {
+  if (!isValidClientId(response.clientId)) {
+    throw std::invalid_argument("Invalid certificate handshake client id.");
+  }
+  (void)fromHex(response.clientNonceHex,
+                SecurityHandshake::kChallengeBytes, "client nonce");
+  (void)fromHex(response.clientEphemeralPublicKeyHex,
+                SecurityHandshake::kX25519KeyBytes,
+                "client ephemeral public key");
+  validateCertificateHex(response.clientCertificateHex);
+  if (response.signatureHex.empty() || response.signatureHex.size() % 2 != 0 ||
+      !isLowerHex(response.signatureHex)) {
+    throw std::invalid_argument("Invalid certificate handshake signature.");
   }
 }
 
@@ -271,21 +490,22 @@ std::vector<unsigned char> deriveX25519SharedSecret(
 }
 
 std::string hkdfSessionSecretHex(const std::vector<unsigned char> &sharedSecret,
-                                 const std::string &transcript) {
+                                 const std::string &transcript,
+                                 const std::string &saltLabel) {
   std::vector<unsigned char> key(32);
   EvpPkeyCtxPtr ctx(EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, nullptr),
                     EVP_PKEY_CTX_free);
   if (!ctx) {
     throw std::runtime_error("Failed to allocate signed session HKDF context.");
   }
-  const unsigned char salt[] = "TransferUDT signed handshake v1";
   const unsigned char *info =
       reinterpret_cast<const unsigned char *>(transcript.data());
   size_t keyLen = key.size();
   if (EVP_PKEY_derive_init(ctx.get()) <= 0 ||
       EVP_PKEY_CTX_set_hkdf_md(ctx.get(), EVP_sha256()) <= 0 ||
-      EVP_PKEY_CTX_set1_hkdf_salt(ctx.get(), salt,
-                                  static_cast<int>(sizeof(salt) - 1)) <= 0 ||
+      EVP_PKEY_CTX_set1_hkdf_salt(
+          ctx.get(), reinterpret_cast<const unsigned char *>(saltLabel.data()),
+          static_cast<int>(saltLabel.size())) <= 0 ||
       EVP_PKEY_CTX_set1_hkdf_key(ctx.get(), sharedSecret.data(),
                                  static_cast<int>(sharedSecret.size())) <= 0 ||
       EVP_PKEY_CTX_add1_hkdf_info(ctx.get(), info,
@@ -648,7 +868,207 @@ std::string DeriveSignedSessionSecret(
       deriveX25519SharedSecret(ownEphemeralPrivateKeyHex,
                                peerEphemeralPublicKeyHex);
   return hkdfSessionSecretHex(
-      sharedSecret, buildKdfTranscript(challenge, response, serverSignatureHex));
+      sharedSecret, buildKdfTranscript(challenge, response, serverSignatureHex),
+      "TransferUDT signed handshake v1");
+}
+
+std::string LoadCertificateBundleHex(const std::string &certificatePath) {
+  std::ifstream input(certificatePath, std::ios::binary);
+  if (!input) {
+    throw std::runtime_error("Failed to open certificate bundle: " +
+                             certificatePath);
+  }
+  std::vector<unsigned char> bytes(
+      (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  if (bytes.empty() || bytes.size() > kMaxCertificateBundleBytes) {
+    throw std::runtime_error("Certificate bundle is empty or exceeds 24 KiB.");
+  }
+  const std::string certificateHex = toHex(bytes.data(), bytes.size());
+  (void)parseCertificateBundle(certificateHex);
+  return certificateHex;
+}
+
+bool ValidateCertificateBundle(const std::string &certificateHex,
+                               const std::string &caBundlePath,
+                               const std::string &expectedIdentity,
+                               bool serverCertificate) {
+  try {
+    return validateCertificateBundle(certificateHex, caBundlePath,
+                                     expectedIdentity, serverCertificate);
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
+bool CertificateMatchesPrivateKey(const std::string &certificateHex,
+                                  const std::string &privateKeyPath) {
+  try {
+    return certificateMatchesPrivateKey(certificateHex, privateKeyPath);
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
+std::string
+BuildCertificateChallengeMessage(const CertificateChallenge &challenge) {
+  validateCertificateChallenge(challenge);
+  return std::string(kCertificateChallengePrefix) + challenge.serverNonceHex +
+         " " + challenge.serverEphemeralPublicKeyHex + " " +
+         challenge.serverCertificateHex;
+}
+
+bool TryParseCertificateChallengeMessage(const std::string &message,
+                                         CertificateChallenge &challenge) {
+  const std::string prefix(kCertificateChallengePrefix);
+  if (message.rfind(prefix, 0) != 0) {
+    return false;
+  }
+  const auto parts = splitSpaceSeparated(message.substr(prefix.size()));
+  if (parts.size() != 3) {
+    return false;
+  }
+  challenge = {parts[0], parts[1], parts[2]};
+  try {
+    validateCertificateChallenge(challenge);
+    return true;
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
+std::string BuildCertificateResponseMessage(
+    const CertificateChallenge &challenge, const std::string &clientId,
+    const std::string &clientNonceHex,
+    const std::string &clientEphemeralPublicKeyHex,
+    const std::string &clientCertificatePath,
+    const std::string &clientPrivateKeyPath) {
+  validateCertificateChallenge(challenge);
+  CertificateResponse response{clientId, clientNonceHex,
+                               clientEphemeralPublicKeyHex,
+                               LoadCertificateBundleHex(clientCertificatePath),
+                               "00"};
+  validateCertificateResponse(response);
+  if (!certificateMatchesPrivateKey(response.clientCertificateHex,
+                                    clientPrivateKeyPath)) {
+    throw std::runtime_error(
+        "Client certificate does not match the configured private key.");
+  }
+  response.signatureHex = signMessageHex(
+      buildCertificateClientTranscript(
+          challenge, response.clientId, response.clientNonceHex,
+          response.clientEphemeralPublicKeyHex,
+          response.clientCertificateHex),
+      clientPrivateKeyPath);
+  return std::string(kCertificateResponsePrefix) + response.clientId + " " +
+         response.clientNonceHex + " " +
+         response.clientEphemeralPublicKeyHex + " " +
+         response.clientCertificateHex + " " + response.signatureHex;
+}
+
+bool TryParseCertificateResponseMessage(const std::string &message,
+                                        CertificateResponse &response) {
+  const std::string prefix(kCertificateResponsePrefix);
+  if (message.rfind(prefix, 0) != 0) {
+    return false;
+  }
+  const auto parts = splitSpaceSeparated(message.substr(prefix.size()));
+  if (parts.size() != 5) {
+    return false;
+  }
+  response = {parts[0], parts[1], parts[2], parts[3], parts[4]};
+  try {
+    validateCertificateResponse(response);
+    return true;
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
+bool VerifyCertificateResponseMessage(const CertificateChallenge &challenge,
+                                      const CertificateResponse &response,
+                                      const std::string &caBundlePath) {
+  try {
+    validateCertificateChallenge(challenge);
+    validateCertificateResponse(response);
+    if (!validateCertificateBundle(response.clientCertificateHex, caBundlePath,
+                                   response.clientId, false)) {
+      return false;
+    }
+    return verifyCertificateSignatureHex(
+        buildCertificateClientTranscript(
+            challenge, response.clientId, response.clientNonceHex,
+            response.clientEphemeralPublicKeyHex,
+            response.clientCertificateHex),
+        response.signatureHex, response.clientCertificateHex);
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
+std::string BuildCertificateOkMessage(
+    const CertificateChallenge &challenge,
+    const CertificateResponse &response,
+    const std::string &serverPrivateKeyPath) {
+  validateCertificateChallenge(challenge);
+  validateCertificateResponse(response);
+  if (!certificateMatchesPrivateKey(challenge.serverCertificateHex,
+                                    serverPrivateKeyPath)) {
+    throw std::runtime_error(
+        "Server certificate does not match the configured private key.");
+  }
+  return std::string(kCertificateOkPrefix) +
+         signMessageHex(buildCertificateServerTranscript(challenge, response),
+                        serverPrivateKeyPath);
+}
+
+bool VerifyCertificateOkMessage(
+    const CertificateChallenge &challenge,
+    const CertificateResponse &response, const std::string &okMessage,
+    const std::string &caBundlePath, const std::string &expectedServerIdentity,
+    std::string *serverSignatureHex) {
+  const std::string prefix(kCertificateOkPrefix);
+  if (okMessage.rfind(prefix, 0) != 0) {
+    return false;
+  }
+  try {
+    validateCertificateChallenge(challenge);
+    validateCertificateResponse(response);
+    if (!validateCertificateBundle(challenge.serverCertificateHex, caBundlePath,
+                                   expectedServerIdentity, true)) {
+      return false;
+    }
+    const std::string signatureHex = okMessage.substr(prefix.size());
+    const bool valid = verifyCertificateSignatureHex(
+        buildCertificateServerTranscript(challenge, response), signatureHex,
+        challenge.serverCertificateHex);
+    if (valid && serverSignatureHex != nullptr) {
+      *serverSignatureHex = signatureHex;
+    }
+    return valid;
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
+std::string DeriveCertificateSessionSecret(
+    const std::string &ownEphemeralPrivateKeyHex,
+    const std::string &peerEphemeralPublicKeyHex,
+    const CertificateChallenge &challenge,
+    const CertificateResponse &response,
+    const std::string &serverSignatureHex) {
+  validateCertificateChallenge(challenge);
+  validateCertificateResponse(response);
+  if (serverSignatureHex.empty() || serverSignatureHex.size() % 2 != 0 ||
+      !isLowerHex(serverSignatureHex)) {
+    throw std::invalid_argument(
+        "Invalid certificate handshake server signature.");
+  }
+  const auto sharedSecret = deriveX25519SharedSecret(
+      ownEphemeralPrivateKeyHex, peerEphemeralPublicKeyHex);
+  return hkdfSessionSecretHex(
+      sharedSecret,
+      buildCertificateKdfTranscript(challenge, response, serverSignatureHex),
+      "TransferUDT certificate handshake v1");
 }
 
 } // namespace SecurityHandshake

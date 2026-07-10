@@ -26,6 +26,8 @@ documentacao operacional.
   `versioned`.
 - PSK challenge-response e AES-256-GCM.
 - Suporte a identidade por `signed_handshake`.
+- Suporte opcional a identidade mutua X.509 por `certificate_handshake`, com
+  validacao de CA, EKU, SAN/CN e prova de posse da chave privada.
 - Heartbeat do Agent para Dashboard.
 
 ## Validacao esperada para release
@@ -33,9 +35,10 @@ documentacao operacional.
 - Build Release limpo de Agent e Server.
 - Publish self-contained win-x64 do Dashboard.
 - Geracao do wizard Inno Setup.
-- Agent tests: 34/34.
-- Server tests: 42/42.
-- E2E de reinicio do Agent durante transferencia com validacao SHA-256.
+- Agent tests: 36/36.
+- Server tests: 43/43.
+- E2E de producao: 13/13 cenarios com handshake X.509, incluindo reinicio do
+  Agent durante transferencia, rejeicao de CA incorreta e validacao SHA-256.
 - SHA256 publicado para o instalador e para o pacote final.
 
 ## Observacoes de seguranca

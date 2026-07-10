@@ -27,6 +27,8 @@ Product documentation:
 - AES-256-GCM encrypted packet envelope for chunk transfer.
 - PSK challenge-response handshake using HMAC-SHA256.
 - Optional per-client PSK binding for authenticated Agent identities.
+- Optional `signed_handshake` raw-key identity and `certificate_handshake`
+  mutual X.509 identity with CA, EKU, and SAN/CN validation.
 - Rejection of plaintext packets when secure transfer is enabled.
 - Server-side limits for queued work, logical file size, and per-client storage.
 - Duplicate successful chunks are ignored without decrementing completion counters.

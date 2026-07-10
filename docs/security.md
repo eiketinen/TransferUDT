@@ -10,6 +10,9 @@
 - Signed identity mode authenticates Agent and Server handshake transcripts with
   configured PEM signing keys and derives per-session AES-GCM secrets with
   ephemeral X25519 plus HKDF-SHA256.
+- Certificate identity mode validates CA chains, certificate validity, role EKU,
+  and SAN/CN peer identities, proves private-key possession, and derives a
+  domain-separated ephemeral X25519 session secret.
 - Optional authenticated `security.client_id` allowlisting.
 - Server-side `security.client_psk.<client_id>` entries bind each configured
   client identity to its own PSK.
@@ -34,6 +37,9 @@
 - For `security.identity.mode=signed_handshake`, generate one signing key pair
   per Agent plus one Server signing key pair. Store private keys only on their
   owning machine and distribute public keys through the deployment process.
+- For `security.identity.mode=certificate_handshake`, issue separate
+  `clientAuth` and `serverAuth` leaf certificates from an internal CA. Keep
+  private keys local, install the CA bundle on both peers, and synchronize time.
 - Restrict configuration file ACLs to Administrators and the service identity.
 - Rotate PSKs after suspected compromise.
 - Restrict Server network exposure with firewall rules.
@@ -42,10 +48,8 @@
 
 ## Limitations
 
-- `security.client_id` is backed by either a per-client PSK or a configured
-  public signing key, depending on `security.identity.mode`, but still does not
-  provide certificate-chain identity.
-- There is no certificate chain validation yet.
+- Certificate revocation retrieval, enrollment, renewal, and rotation remain
+  manual operational responsibilities.
 - mTLS is not implemented.
 - Replay resistance is scoped to the lifetime of the authenticated session.
   Application-level chunk idempotency remains as a second defense against
@@ -55,11 +59,11 @@
 
 ## Certificate-Based Identity
 
-The current `signed_handshake` mode provides key-based mutual identity and
-ephemeral session keys. It is not mTLS: there is no certificate-chain
-validation, revocation, or TLS transport. For internet-facing deployments or
-untrusted networks, use mTLS or an equivalent certificate-backed identity layer
-as the production baseline.
+The `certificate_handshake` profile provides certificate-chain identity and
+ephemeral session keys inside the TransferUDT protocol. It is not mTLS: UDT is
+not wrapped in TLS/DTLS records, and online revocation is not implemented. Use
+network segmentation and firewall policy in addition to this profile; require a
+separate TLS gateway if policy mandates standardized mTLS transport.
 
 ## Signed Handshake Key Setup
 

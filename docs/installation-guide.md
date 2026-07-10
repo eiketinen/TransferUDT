@@ -12,7 +12,8 @@ Defina antes de instalar:
 - Porta UDT do Server, padrao `50051`.
 - Porta HTTPS do Dashboard, padrao `8443`.
 - `client_id` de cada Agent.
-- PSK forte ou par de chaves para `signed_handshake`.
+- PSK forte, par de chaves para `signed_handshake`, ou PKI interna com
+  certificados `clientAuth`/`serverAuth` para `certificate_handshake`.
 - Certificado `.pfx` HTTPS do Dashboard para producao.
 
 ## 2. Instalar Server

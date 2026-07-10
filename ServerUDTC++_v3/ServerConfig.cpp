@@ -35,7 +35,8 @@ static bool isValidClientPskId(const std::string& value) {
 }
 
 static bool isValidIdentityMode(const std::string& value) {
-    return value == "psk" || value == "signed_handshake";
+    return value == "psk" || value == "signed_handshake" ||
+           value == "certificate_handshake";
 }
 
 static std::string normalizeLower(std::string value) {
@@ -351,6 +352,18 @@ ServerConfig::ServerConfig() {
         [](const std::string&) { return true; }
     );
 
+    securityServerCertificatePath = ServerConfig::loadConfigParam<std::string>(
+        configMap, "security.server_certificate_path", "",
+        "Security server certificate path invalid",
+        [](const std::string&) { return true; }
+    );
+
+    securityCaBundlePath = ServerConfig::loadConfigParam<std::string>(
+        configMap, "security.ca_bundle_path", "",
+        "Security CA bundle path invalid",
+        [](const std::string&) { return true; }
+    );
+
     static constexpr const char* CLIENT_PSK_PREFIX = "security.client_psk.";
     static constexpr const char* CLIENT_PUBLIC_KEY_PREFIX = "security.client_public_key.";
     for (const auto& entry : configMap) {
@@ -406,6 +419,18 @@ ServerConfig::ServerConfig() {
         if (securityServerPrivateKeyPath.empty() || clientPublicKeyPaths.empty()) {
             throw std::runtime_error(
                 "signed_handshake requires security.server_private_key_path and at least one security.client_public_key.<client_id>.");
+        }
+    }
+
+    if (securityIdentityMode == "certificate_handshake") {
+        if (!securityEnabled || !securityHandshakeEnabled) {
+            throw std::runtime_error(
+                "certificate_handshake requires security.enabled=true and security.handshake.enabled=true.");
+        }
+        if (securityServerPrivateKeyPath.empty() ||
+            securityServerCertificatePath.empty() || securityCaBundlePath.empty()) {
+            throw std::runtime_error(
+                "certificate_handshake requires security.server_private_key_path, security.server_certificate_path, and security.ca_bundle_path.");
         }
     }
 

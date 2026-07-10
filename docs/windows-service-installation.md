@@ -75,6 +75,10 @@ Por padrao, o instalador restringe a ACL de `C:\ProgramData\TransferUDT\Agent` e
 
 Para producao em rede privada controlada, prefira configurar
 `security.identity.mode=signed_handshake` apos instalar os arquivos de chave.
+Para identidade X.509, instale chave privada, bundle de certificados e CA com
+ACL de leitura para a conta do servico, configure
+`security.identity.mode=certificate_handshake` nos dois peers e reinicie Server
+antes dos Agents.
 Veja `docs/security.md` para o fluxo de geracao e distribuicao de chaves.
 
 ## Instalacao via PowerShell

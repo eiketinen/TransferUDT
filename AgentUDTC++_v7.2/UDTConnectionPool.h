@@ -106,6 +106,9 @@ class UDTConnectionPool {
     std::string securityIdentityMode_;
     std::string securityClientPrivateKeyPath_;
     std::string securityServerPublicKeyPath_;
+    std::string securityClientCertificatePath_;
+    std::string securityCaBundlePath_;
+    std::string securityServerIdentity_;
     std::thread keepAliveThread_;
     std::atomic<size_t> keepAliveInFlight_{0};
 
@@ -165,6 +168,9 @@ public:
         const std::string& securityIdentityMode = "psk",
         const std::string& securityClientPrivateKeyPath = "",
         const std::string& securityServerPublicKeyPath = "",
+        const std::string& securityClientCertificatePath = "",
+        const std::string& securityCaBundlePath = "",
+        const std::string& securityServerIdentity = "",
         bool securityEnabled = false
     );
 

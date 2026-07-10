@@ -65,6 +65,9 @@ Causas comuns:
 - `server.allowed_clients` nao inclui o Agent.
 - PSK/client_id divergente.
 - `security.allow_insecure=false` com seguranca incompleta.
+- Em `certificate_handshake`: CA incorreta, certificado expirado, EKU errado,
+  SAN/CN diferente de `client_id`/`server_identity`, chave privada incompatível
+  ou relogio do Windows fora de sincronismo.
 
 ## Arquivo nao e reconstruido
 

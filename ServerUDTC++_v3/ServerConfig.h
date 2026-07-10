@@ -118,7 +118,7 @@ public:
         clientPublicKeyPaths.find(clientId) == clientPublicKeyPaths.end()) {
       return false;
     }
-    if (!isSignedIdentityMode() && !clientPreSharedKeys.empty() &&
+    if (securityIdentityMode == "psk" && !clientPreSharedKeys.empty() &&
         clientPreSharedKeys.find(clientId) == clientPreSharedKeys.end()) {
       return false;
     }
@@ -147,8 +147,17 @@ public:
   bool isSignedIdentityMode() const {
     return securityIdentityMode == "signed_handshake";
   }
+  bool isCertificateIdentityMode() const {
+    return securityIdentityMode == "certificate_handshake";
+  }
   const std::string &getSecurityServerPrivateKeyPath() const {
     return securityServerPrivateKeyPath;
+  }
+  const std::string &getSecurityServerCertificatePath() const {
+    return securityServerCertificatePath;
+  }
+  const std::string &getSecurityCaBundlePath() const {
+    return securityCaBundlePath;
   }
   std::string getClientPublicKeyPath(const std::string &clientId) const {
     const auto it = clientPublicKeyPaths.find(clientId);
@@ -250,6 +259,8 @@ private:
   std::string securityPreSharedKey;
   std::string securityIdentityMode;
   std::string securityServerPrivateKeyPath;
+  std::string securityServerCertificatePath;
+  std::string securityCaBundlePath;
   std::map<std::string, std::string> clientPreSharedKeys;
   std::map<std::string, std::string> clientPublicKeyPaths;
   std::vector<std::string> allowedClients;

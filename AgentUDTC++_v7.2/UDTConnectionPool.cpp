@@ -132,6 +132,9 @@ UDTConnectionPool::UDTConnectionPool(
     const std::string& securityIdentityMode,
     const std::string& securityClientPrivateKeyPath,
     const std::string& securityServerPublicKeyPath,
+    const std::string& securityClientCertificatePath,
+    const std::string& securityCaBundlePath,
+    const std::string& securityServerIdentity,
     bool securityEnabled)
     : serverHost_(host),
     serverPort_(port),
@@ -157,7 +160,10 @@ UDTConnectionPool::UDTConnectionPool(
     securityClientId_(securityClientId),
     securityIdentityMode_(securityIdentityMode),
     securityClientPrivateKeyPath_(securityClientPrivateKeyPath),
-    securityServerPublicKeyPath_(securityServerPublicKeyPath)
+    securityServerPublicKeyPath_(securityServerPublicKeyPath),
+    securityClientCertificatePath_(securityClientCertificatePath),
+    securityCaBundlePath_(securityCaBundlePath),
+    securityServerIdentity_(securityServerIdentity)
 {
     if (max_size_ == 0) max_size_ = 1; // Ensure at least 1 connection
     Logger::getInstance().info("UDTConnectionPool::UDTConnectionPool", "Pool initialized with max size: " + std::to_string(max_size_));
@@ -227,7 +233,92 @@ std::shared_ptr<UDTConnection> UDTConnectionPool::_createConnection() {
                 return nullptr;
             }
             if (securityHandshakeEnabled_) {
-                if (securityIdentityMode_ == "signed_handshake") {
+                if (securityIdentityMode_ == "certificate_handshake") {
+                    SecurityHandshake::CertificateChallenge challenge;
+                    if (!SecurityHandshake::TryParseCertificateChallengeMessage(
+                            response, challenge)) {
+                        Logger::getInstance().warning(
+                            "UDTConnectionPool::_createConnection",
+                            "Expected certificate authentication challenge.");
+                        connection->close();
+                        circuitBreaker_.reportFailure();
+                        return nullptr;
+                    }
+
+                    try {
+                        const std::string expectedServerIdentity =
+                            securityServerIdentity_.empty()
+                                ? serverHost_
+                                : securityServerIdentity_;
+                        if (!SecurityHandshake::ValidateCertificateBundle(
+                                challenge.serverCertificateHex,
+                                securityCaBundlePath_, expectedServerIdentity,
+                                true)) {
+                            throw std::runtime_error(
+                                "Server certificate chain or identity is invalid.");
+                        }
+
+                        const auto clientEphemeral =
+                            SecurityHandshake::CreateEphemeralKeyPair();
+                        const std::string certificateResponse =
+                            SecurityHandshake::BuildCertificateResponseMessage(
+                                challenge, securityClientId_,
+                                SecurityHandshake::CreateChallenge(),
+                                clientEphemeral.publicKeyHex,
+                                securityClientCertificatePath_,
+                                securityClientPrivateKeyPath_);
+                        SecurityHandshake::CertificateResponse parsedResponse;
+                        if (!SecurityHandshake::TryParseCertificateResponseMessage(
+                                certificateResponse, parsedResponse) ||
+                            !connection->sendString(certificateResponse)) {
+                            throw std::runtime_error(
+                                "Failed to send certificate authentication response.");
+                        }
+
+                        if (!connection->recvString(response) ||
+                            response == SecurityHandshake::kAuthFailed) {
+                            throw std::runtime_error(
+                                "Server rejected certificate authentication.");
+                        }
+
+                        std::string serverSignature;
+                        if (!SecurityHandshake::VerifyCertificateOkMessage(
+                                challenge, parsedResponse, response,
+                                securityCaBundlePath_, expectedServerIdentity,
+                                &serverSignature)) {
+                            throw std::runtime_error(
+                                "Server certificate proof verification failed.");
+                        }
+
+                        connection->setSecureSessionKey(
+                            SecurityHandshake::DeriveCertificateSessionSecret(
+                                clientEphemeral.privateKeyHex,
+                                challenge.serverEphemeralPublicKeyHex,
+                                challenge, parsedResponse, serverSignature));
+                        Logger::getInstance().info(
+                            "UDTConnectionPool::_createConnection",
+                            "Certificate authentication succeeded for client identity '" +
+                                securityClientId_ + "'.");
+                    }
+                    catch (const std::exception& ex) {
+                        Logger::getInstance().warning(
+                            "UDTConnectionPool::_createConnection",
+                            "Certificate authentication failed: " +
+                                std::string(ex.what()));
+                        connection->close();
+                        circuitBreaker_.reportFailure();
+                        return nullptr;
+                    }
+
+                    if (!connection->recvString(response)) {
+                        Logger::getInstance().warning(
+                            "UDTConnectionPool::_createConnection",
+                            "Secure session not received after certificate authentication.");
+                        connection->close();
+                        circuitBreaker_.reportFailure();
+                        return nullptr;
+                    }
+                } else if (securityIdentityMode_ == "signed_handshake") {
                     SecurityHandshake::SignedChallenge challenge;
                     if (!SecurityHandshake::TryParseSignedChallengeMessage(
                             response, challenge)) {

@@ -11,11 +11,15 @@ constexpr const char *kResponsePrefix = "AUTH_RESPONSE_V1 ";
 constexpr const char *kSignedChallengePrefix = "AUTH_SIGNED_CHALLENGE_V1 ";
 constexpr const char *kSignedResponsePrefix = "AUTH_SIGNED_RESPONSE_V1 ";
 constexpr const char *kSignedOkPrefix = "AUTH_SIGNED_OK_V1 ";
+constexpr const char *kCertificateChallengePrefix = "AUTH_CERT_CHALLENGE_V1 ";
+constexpr const char *kCertificateResponsePrefix = "AUTH_CERT_RESPONSE_V1 ";
+constexpr const char *kCertificateOkPrefix = "AUTH_CERT_OK_V1 ";
 constexpr const char *kSecureSessionPrefix = "SECURE_SESSION_V1 ";
 constexpr const char *kAuthFailed = "AUTH_FAILED";
 constexpr size_t kChallengeBytes = 32;
 constexpr size_t kX25519KeyBytes = 32;
 constexpr size_t kSessionIdBytes = 16;
+constexpr size_t kMaxCertificateBundleBytes = 24 * 1024;
 
 struct EphemeralKeyPair {
   std::string privateKeyHex;
@@ -31,6 +35,20 @@ struct SignedResponse {
   std::string clientId;
   std::string clientNonceHex;
   std::string clientEphemeralPublicKeyHex;
+  std::string signatureHex;
+};
+
+struct CertificateChallenge {
+  std::string serverNonceHex;
+  std::string serverEphemeralPublicKeyHex;
+  std::string serverCertificateHex;
+};
+
+struct CertificateResponse {
+  std::string clientId;
+  std::string clientNonceHex;
+  std::string clientEphemeralPublicKeyHex;
+  std::string clientCertificateHex;
   std::string signatureHex;
 };
 
@@ -97,6 +115,45 @@ std::string DeriveSignedSessionSecret(
     const std::string &ownEphemeralPrivateKeyHex,
     const std::string &peerEphemeralPublicKeyHex,
     const SignedChallenge &challenge, const SignedResponse &response,
+    const std::string &serverSignatureHex);
+
+std::string LoadCertificateBundleHex(const std::string &certificatePath);
+bool ValidateCertificateBundle(const std::string &certificateHex,
+                               const std::string &caBundlePath,
+                               const std::string &expectedIdentity,
+                               bool serverCertificate);
+bool CertificateMatchesPrivateKey(const std::string &certificateHex,
+                                  const std::string &privateKeyPath);
+
+std::string
+BuildCertificateChallengeMessage(const CertificateChallenge &challenge);
+bool TryParseCertificateChallengeMessage(const std::string &message,
+                                         CertificateChallenge &challenge);
+std::string BuildCertificateResponseMessage(
+    const CertificateChallenge &challenge, const std::string &clientId,
+    const std::string &clientNonceHex,
+    const std::string &clientEphemeralPublicKeyHex,
+    const std::string &clientCertificatePath,
+    const std::string &clientPrivateKeyPath);
+bool TryParseCertificateResponseMessage(const std::string &message,
+                                        CertificateResponse &response);
+bool VerifyCertificateResponseMessage(const CertificateChallenge &challenge,
+                                      const CertificateResponse &response,
+                                      const std::string &caBundlePath);
+std::string BuildCertificateOkMessage(
+    const CertificateChallenge &challenge,
+    const CertificateResponse &response,
+    const std::string &serverPrivateKeyPath);
+bool VerifyCertificateOkMessage(
+    const CertificateChallenge &challenge,
+    const CertificateResponse &response, const std::string &okMessage,
+    const std::string &caBundlePath, const std::string &expectedServerIdentity,
+    std::string *serverSignatureHex = nullptr);
+std::string DeriveCertificateSessionSecret(
+    const std::string &ownEphemeralPrivateKeyHex,
+    const std::string &peerEphemeralPublicKeyHex,
+    const CertificateChallenge &challenge,
+    const CertificateResponse &response,
     const std::string &serverSignatureHex);
 
 } // namespace SecurityHandshake

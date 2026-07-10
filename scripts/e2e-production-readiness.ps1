@@ -124,6 +124,113 @@ return 0;
     }
 }
 
+function New-CertificateTestPki([string]$OutputDir, [string]$ServerIdentity, [string]$ClientIdentity, [string]$WorkDir) {
+    $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+    if (-not $dotnet) {
+        throw "dotnet is required to generate temporary X.509 certificates for this e2e test."
+    }
+
+    $projectDir = New-Directory (Join-Path $WorkDir "certgen")
+    $csprojPath = Join-Path $projectDir "CertGen.csproj"
+    $programPath = Join-Path $projectDir "Program.cs"
+
+    @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+"@ | Set-Content -Path $csprojPath -Encoding UTF8
+
+    @"
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+
+static void WritePem(string path, string label, byte[] der)
+{
+    var b64 = Convert.ToBase64String(der);
+    using var writer = new StreamWriter(path, false, Encoding.ASCII);
+    writer.WriteLine($"-----BEGIN {label}-----");
+    for (var i = 0; i < b64.Length; i += 64)
+        writer.WriteLine(b64.Substring(i, Math.Min(64, b64.Length - i)));
+    writer.WriteLine($"-----END {label}-----");
+}
+
+static X509Certificate2 CreateCa(string name, RSA key)
+{
+    var request = new CertificateRequest($"CN={name}", key,
+        HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+    request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+    request.CertificateExtensions.Add(new X509KeyUsageExtension(
+        X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, true));
+    request.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(request.PublicKey, false));
+    return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5),
+                                    DateTimeOffset.UtcNow.AddDays(2));
+}
+
+static X509Certificate2 CreateLeaf(string identity, RSA key, X509Certificate2 ca,
+                                   bool server)
+{
+    var request = new CertificateRequest($"CN={identity}", key,
+        HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+    request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
+    request.CertificateExtensions.Add(new X509KeyUsageExtension(
+        X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, true));
+    var eku = new OidCollection {
+        new Oid(server ? "1.3.6.1.5.5.7.3.1" : "1.3.6.1.5.5.7.3.2")
+    };
+    request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(eku, false));
+    var san = new SubjectAlternativeNameBuilder();
+    san.AddDnsName(identity);
+    request.CertificateExtensions.Add(san.Build());
+    request.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(request.PublicKey, false));
+    var serial = RandomNumberGenerator.GetBytes(16);
+    serial[0] &= 0x7f;
+    var issued = request.Create(ca, DateTimeOffset.UtcNow.AddMinutes(-5),
+                                DateTimeOffset.UtcNow.AddDays(1), serial);
+    return issued.CopyWithPrivateKey(key);
+}
+
+if (args.Length != 3) return 2;
+Directory.CreateDirectory(args[0]);
+using var caKey = RSA.Create(3072);
+using var ca = CreateCa("TransferUDT E2E CA", caKey);
+using var wrongCaKey = RSA.Create(3072);
+using var wrongCa = CreateCa("TransferUDT Wrong E2E CA", wrongCaKey);
+using var serverKey = RSA.Create(3072);
+using var server = CreateLeaf(args[1], serverKey, ca, true);
+using var clientKey = RSA.Create(3072);
+using var client = CreateLeaf(args[2], clientKey, ca, false);
+
+WritePem(Path.Combine(args[0], "ca.pem"), "CERTIFICATE", ca.Export(X509ContentType.Cert));
+WritePem(Path.Combine(args[0], "wrong-ca.pem"), "CERTIFICATE", wrongCa.Export(X509ContentType.Cert));
+WritePem(Path.Combine(args[0], "server.key"), "PRIVATE KEY", serverKey.ExportPkcs8PrivateKey());
+WritePem(Path.Combine(args[0], "server.pem"), "CERTIFICATE", server.Export(X509ContentType.Cert));
+WritePem(Path.Combine(args[0], "agent.key"), "PRIVATE KEY", clientKey.ExportPkcs8PrivateKey());
+WritePem(Path.Combine(args[0], "agent.pem"), "CERTIFICATE", client.Export(X509ContentType.Cert));
+return 0;
+"@ | Set-Content -Path $programPath -Encoding UTF8
+
+    $previousDotnetCliHome = $env:DOTNET_CLI_HOME
+    $previousDotnetNoLogo = $env:DOTNET_NOLOGO
+    $env:DOTNET_CLI_HOME = New-Directory (Join-Path $WorkDir ".dotnet-certgen")
+    $env:DOTNET_NOLOGO = "1"
+    try {
+        & $dotnet.Source run --project $csprojPath -- $OutputDir $ServerIdentity $ClientIdentity | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to generate temporary X.509 test PKI with dotnet."
+        }
+    }
+    finally {
+        $env:DOTNET_CLI_HOME = $previousDotnetCliHome
+        $env:DOTNET_NOLOGO = $previousDotnetNoLogo
+    }
+}
+
 function Install-LocalConfig([string]$Name, [string]$ExePath, [string]$SourceConfigPath, [string]$BackupDir) {
     $targetConfigPath = Join-Path (Split-Path -Parent (Resolve-Path $ExePath).Path) "config.properties"
     $backupPath = Join-Path $BackupDir "$Name.config.properties.bak"
@@ -378,8 +485,8 @@ function New-ScenarioReport($Result) {
     $lines.Add("- Server versioning evidence: $($Result.ServerVersioningEvidence)")
     $lines.Add("- Adaptive chunks: $($Result.AdaptiveEnabled)")
     $lines.Add("- ACK delay pattern ms: $($Result.AckDelayPattern)")
-    $lines.Add("- Server signed handshake evidence: $($Result.ServerSignedHandshake)")
-    $lines.Add("- Agent signed handshake evidence: $($Result.AgentSignedHandshake)")
+    $lines.Add("- Server certificate handshake evidence: $($Result.ServerCertificateHandshake)")
+    $lines.Add("- Agent certificate handshake evidence: $($Result.AgentCertificateHandshake)")
     $lines.Add("- Server all-chunks-complete evidence: $($Result.ServerCompleted)")
     $lines.Add("- Agent file-complete evidence: $($Result.AgentCompleted)")
     $lines.Add("- Agent restart executed: $($Result.AgentRestarted)")
@@ -408,7 +515,7 @@ function New-ScenarioReport($Result) {
     $lines.Add("")
     if ($Result.Passed -and $Result.ExpectedOutcome -eq "success") {
         $lines.Add("- Integrity: passed by end-to-end SHA-256 comparison.")
-        $lines.Add("- Authentication: signed handshake was observed on both server and agent logs.")
+        $lines.Add("- Authentication: certificate handshake was observed on both server and agent logs.")
         if ($Result.AdaptiveEnabled) {
             if ($Result.AdaptiveRecommendationUniqueCount -gt 1) {
                 $lines.Add("- Adaptive behavior: chunk recommendation changed during transfer.")
@@ -458,15 +565,14 @@ function Invoke-E2EScenario($Scenario, [string]$SuiteRoot, [string]$RepoRoot, [s
     $serverDb = New-Directory (Join-Path $serverRoot "db")
     $configBackups = New-Directory (Join-Path $scenarioRoot "original-configs")
 
+    $serverIdentity = "transfer-server.test"
+    New-CertificateTestPki $keysDir $serverIdentity $safeClientId $scenarioRoot
+    $caBundle = Join-Path $keysDir "ca.pem"
+    $wrongCaBundle = Join-Path $keysDir "wrong-ca.pem"
     $serverPrivateKey = Join-Path $keysDir "server.key"
-    $serverPublicKey = Join-Path $keysDir "server.pub"
+    $serverCertificate = Join-Path $keysDir "server.pem"
     $agentPrivateKey = Join-Path $keysDir "agent.key"
-    $agentPublicKey = Join-Path $keysDir "agent.pub"
-    $wrongServerPrivateKey = Join-Path $keysDir "wrong-server.key"
-    $wrongServerPublicKey = Join-Path $keysDir "wrong-server.pub"
-    New-RsaPemKeyPair $serverPrivateKey $serverPublicKey $scenarioRoot
-    New-RsaPemKeyPair $agentPrivateKey $agentPublicKey $scenarioRoot
-    New-RsaPemKeyPair $wrongServerPrivateKey $wrongServerPublicKey $scenarioRoot
+    $agentCertificate = Join-Path $keysDir "agent.pem"
 
     $serverConfig = Join-Path $scenarioRoot "server.properties"
     $agentConfig = Join-Path $scenarioRoot "agent.properties"
@@ -497,7 +603,7 @@ function Invoke-E2EScenario($Scenario, [string]$SuiteRoot, [string]$RepoRoot, [s
     }
     $serverMaxFileSizeMb = if ($Scenario.ServerMaxFileSizeMb) { [int]$Scenario.ServerMaxFileSizeMb } else { 512 }
     $serverAllowedClientId = if ($Scenario.ServerAllowedClientId) { [string]$Scenario.ServerAllowedClientId } else { $safeClientId }
-    $agentServerPublicKeyPath = if ($Scenario.UseWrongServerPublicKey) { $wrongServerPublicKey } else { $serverPublicKey }
+    $agentCaBundlePath = if ($Scenario.UseWrongCaBundle) { $wrongCaBundle } else { $caBundle }
 
     @"
 server.port = $port
@@ -530,10 +636,11 @@ resend.changed_files.server_policy = $changedFilesServerPolicy
 security.enabled = true
 security.handshake.enabled = true
 security.allow_insecure = false
-security.identity.mode = signed_handshake
+security.identity.mode = certificate_handshake
 security.allowed_client_ids = $serverAllowedClientId
 security.server_private_key_path = $(Convert-ToConfigPath $serverPrivateKey)
-security.client_public_key.$safeClientId = $(Convert-ToConfigPath $agentPublicKey)
+security.server_certificate_path = $(Convert-ToConfigPath $serverCertificate)
+security.ca_bundle_path = $(Convert-ToConfigPath $caBundle)
 "@ | Set-Content -Path $serverConfig -Encoding ASCII
 
     @"
@@ -582,10 +689,12 @@ max.file.processing.attempts = 3
 security.enabled = true
 security.handshake.enabled = true
 security.allow_insecure = false
-security.identity.mode = signed_handshake
+security.identity.mode = certificate_handshake
 security.client_id = $safeClientId
 security.client_private_key_path = $(Convert-ToConfigPath $agentPrivateKey)
-security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPath)
+security.client_certificate_path = $(Convert-ToConfigPath $agentCertificate)
+security.ca_bundle_path = $(Convert-ToConfigPath $agentCaBundlePath)
+security.server_identity = $serverIdentity
 "@ | Set-Content -Path $agentConfig -Encoding ASCII
 
     $serverExe = Resolve-Executable $RepoRoot $Configuration $Architecture "server"
@@ -616,8 +725,8 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
         ServerVersioningEvidence = $false
         AdaptiveEnabled = [bool]$Scenario.AdaptiveEnabled
         AckDelayPattern = if ($ackDelayPattern) { ($Scenario.AckPattern -join ",") + " repeated" } else { "none" }
-        ServerSignedHandshake = $false
-        AgentSignedHandshake = $false
+        ServerCertificateHandshake = $false
+        AgentCertificateHandshake = $false
         ServerCompleted = $false
         AgentCompleted = $false
         AgentRestarted = $false
@@ -739,12 +848,12 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
             Wait-ForLogText $agentLog "File processing completed" 20 $agentProcess "agent"
         }
         elseif ($expectedOutcome -eq "auth-reject") {
-            Wait-ForLogText $serverLog "Signed authentication rejected|Signed authentication failed|Authentication handshake failed" 30 $serverProcess "server"
-            $result.NegativeEvidence = "Server rejected signed authentication."
+            Wait-ForLogText $serverLog "Certificate authentication rejected|Certificate authentication failed|Authentication handshake failed" 30 $serverProcess "server"
+            $result.NegativeEvidence = "Server rejected certificate authentication."
         }
         elseif ($expectedOutcome -eq "server-proof-reject") {
-            Wait-ForLogText $agentLog "Signed server proof verification failed|Signed authentication failed" 30 $agentProcess "agent"
-            $result.NegativeEvidence = "Agent rejected server proof signed by an unexpected key."
+            Wait-ForLogText $agentLog "Server certificate chain or identity is invalid|Server certificate proof verification failed|Certificate authentication failed" 30 $agentProcess "agent"
+            $result.NegativeEvidence = "Agent rejected a Server certificate issued by an unexpected CA."
         }
         elseif ($expectedOutcome -eq "too-large-reject") {
             Wait-ForLogText $serverLog "server.max_file_size_mb|Rejecting file|exceeds configured" 30 $serverProcess "server"
@@ -753,8 +862,8 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
 
         $serverText = Get-Content -Path $serverLog -Raw -ErrorAction SilentlyContinue
         $agentText = Get-Content -Path $agentLog -Raw -ErrorAction SilentlyContinue
-        $result.ServerSignedHandshake = $serverText -match "Signed authentication succeeded"
-        $result.AgentSignedHandshake = $agentText -match "Signed authentication succeeded"
+        $result.ServerCertificateHandshake = $serverText -match "Certificate authentication succeeded"
+        $result.AgentCertificateHandshake = $agentText -match "Certificate authentication succeeded"
         $result.ServerCompleted = $serverText -match "All chunks received for file"
         $result.AgentCompleted = $agentText -match "File processing completed"
         $result.RecoveryEvidence = $serverText -match "already stored successfully.*duplicate without updating counters"
@@ -815,8 +924,8 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
 
             $result.Passed =
                 $hashOk -and
-                $result.ServerSignedHandshake -and
-                $result.AgentSignedHandshake -and
+                $result.ServerCertificateHandshake -and
+                $result.AgentCertificateHandshake -and
                 $result.ServerCompleted -and
                 $result.AgentCompleted -and
                 $adaptiveOk -and
@@ -848,7 +957,7 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
             $evidenceOk = -not [string]::IsNullOrWhiteSpace($result.NegativeEvidence)
             $authContextOk = $true
             if ($expectedOutcome -eq "too-large-reject") {
-                $authContextOk = $result.ServerSignedHandshake -and $result.AgentSignedHandshake
+                $authContextOk = $result.ServerCertificateHandshake -and $result.AgentCertificateHandshake
             }
 
             $result.Passed = $evidenceOk -and (-not $unexpectedOutput) -and $authContextOk
@@ -860,7 +969,7 @@ security.server_public_key_path = $(Convert-ToConfigPath $agentServerPublicKeyPa
                     $result.Error = "Expected rejection evidence was not observed."
                 }
                 elseif (-not $authContextOk) {
-                    $result.Error = "Too-large rejection did not occur after a signed handshake."
+                    $result.Error = "Too-large rejection did not occur after a certificate handshake."
                 }
             }
         }
@@ -1015,7 +1124,7 @@ $scenarios = @(
     },
     [pscustomobject]@{
         Name = "unauthorized-client-rejected"
-        Description = "Agent presents a signed identity that is not allowed by server policy."
+        Description = "Agent presents a certificate identity that is not allowed by server policy."
         ExpectedOutcome = "auth-reject"
         PayloadBytes = 64KB
         ChunkKb = 64
@@ -1026,14 +1135,14 @@ $scenarios = @(
         RequireAdaptiveVariation = $false
     },
     [pscustomobject]@{
-        Name = "wrong-server-key-rejected"
-        Description = "Agent pins the wrong server public key and must reject the server proof."
+        Name = "wrong-server-ca-rejected"
+        Description = "Agent trusts the wrong CA bundle and must reject the Server certificate."
         ExpectedOutcome = "server-proof-reject"
         PayloadBytes = 64KB
         ChunkKb = 64
         AdaptiveEnabled = $false
         AckPattern = @()
-        UseWrongServerPublicKey = $true
+        UseWrongCaBundle = $true
         TimeoutSeconds = 60
         RequireAdaptiveVariation = $false
     },

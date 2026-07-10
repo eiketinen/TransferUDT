@@ -103,6 +103,8 @@ NetworkManager::NetworkManager(
     bool securityHandshakeEnabled, std::string securityClientId,
     std::string securityIdentityMode, std::string securityClientPrivateKeyPath,
     std::string securityServerPublicKeyPath,
+    std::string securityClientCertificatePath,
+    std::string securityCaBundlePath, std::string securityServerIdentity,
     bool adaptiveChunkEnabled, uint64_t adaptiveChunkMinBytes,
     uint64_t adaptiveChunkMaxBytes, uint64_t adaptiveChunkInitialBytes,
     int adaptiveChunkTargetAckMillis)
@@ -125,6 +127,10 @@ NetworkManager::NetworkManager(
       securityIdentityMode(std::move(securityIdentityMode)),
       securityClientPrivateKeyPath(std::move(securityClientPrivateKeyPath)),
       securityServerPublicKeyPath(std::move(securityServerPublicKeyPath)),
+      securityClientCertificatePath(
+          std::move(securityClientCertificatePath)),
+      securityCaBundlePath(std::move(securityCaBundlePath)),
+      securityServerIdentity(std::move(securityServerIdentity)),
       adaptiveChunkSettings{adaptiveChunkEnabled, adaptiveChunkMinBytes,
                             adaptiveChunkMaxBytes, adaptiveChunkInitialBytes,
                             adaptiveChunkTargetAckMillis} {
@@ -148,7 +154,9 @@ NetworkManager::NetworkManager(
         this->securityHandshakeEnabled, this->securityPreSharedKey,
         this->securityClientId, this->securityIdentityMode,
         this->securityClientPrivateKeyPath,
-        this->securityServerPublicKeyPath, this->securityEnabled);
+        this->securityServerPublicKeyPath,
+        this->securityClientCertificatePath, this->securityCaBundlePath,
+        this->securityServerIdentity, this->securityEnabled);
 
     auto adaptiveChunks =
         std::make_unique<AdaptiveChunkController>(adaptiveChunkSettings);

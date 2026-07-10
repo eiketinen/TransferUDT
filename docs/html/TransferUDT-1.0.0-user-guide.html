@@ -453,6 +453,15 @@ security.allowed_client_ids = agent-001
 security.client_psk.agent-001 = use-um-segredo-forte-com-32-ou-mais-caracteres</code></pre>
         </div>
 
+        <h3>Identidade X.509 de alta garantia</h3>
+        <p>Quando houver PKI interna, use <code>certificate_handshake</code> nos
+        dois peers. O Agent valida CA, EKU <code>serverAuth</code> e SAN/CN do
+        Server; o Server valida CA, EKU <code>clientAuth</code>, SAN/CN e
+        allowlist do Agent. Configure os caminhos de chave privada, certificado
+        PEM e CA descritos na referencia. Esse perfil protege o handshake do
+        protocolo UDT, mas nao e transporte TLS/mTLS e ainda nao automatiza
+        revogacao ou renovacao.</p>
+
         <h3>Dashboard minimo</h3>
         <div class="code-block">
           <button class="copy">Copiar</button>

@@ -191,6 +191,15 @@ security.allowed_client_ids = agent-001
 security.client_psk.agent-001 = use-um-segredo-forte-com-32-ou-mais-caracteres
 ```
 
+Para maior garantia de identidade em rede privada com PKI interna, configure
+Agent e Server com `security.identity.mode=certificate_handshake`. O Agent usa
+`security.client_private_key_path`, `security.client_certificate_path`,
+`security.ca_bundle_path` e `security.server_identity`. O Server usa
+`security.server_private_key_path`, `security.server_certificate_path` e
+`security.ca_bundle_path`. Certificados de Agent precisam de EKU `clientAuth`;
+o certificado do Server precisa de `serverAuth`. O perfil valida CA e SAN/CN,
+mas nao encapsula UDT em TLS/mTLS.
+
 ## Configuracao minima do Dashboard
 
 O wizard cria `appsettings.json` em `C:\ProgramData\TransferUDT\Dashboard`.
