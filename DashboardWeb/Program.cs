@@ -318,6 +318,7 @@ sealed record AgentSummary(
     int ProcessedFiles,
     int FailedFiles,
     long DiskFreeBytes,
+    DateTimeOffset? LastTransferAt,
     string[] WatchedDirs,
     string[] RecentErrors,
     string[] RecentLogs);
@@ -685,6 +686,9 @@ sealed class DashboardStore(DashboardSettings settings)
     {
         var heartbeat = JsonSerializer.Deserialize<AgentHeartbeat>(payloadJson, JsonOptions.Default) ?? throw new InvalidDataException("Invalid heartbeat payload.");
         var receivedAt = DateTimeOffset.Parse(receivedAtRaw);
+        DateTimeOffset? lastTransferAt = null;
+        if (DateTimeOffset.TryParse(heartbeat.LastTransferAt, out var parsedLastTransferAt))
+            lastTransferAt = parsedLastTransferAt;
         return new AgentSummary(
             heartbeat.ClientId,
             heartbeat.Hostname,
@@ -698,6 +702,7 @@ sealed class DashboardStore(DashboardSettings settings)
             heartbeat.ProcessedFiles,
             heartbeat.FailedFiles,
             heartbeat.DiskFreeBytes,
+            lastTransferAt,
             heartbeat.WatchedDirs,
             heartbeat.RecentErrors,
             heartbeat.RecentLogs);

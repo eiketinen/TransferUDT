@@ -1,5 +1,8 @@
 #include "tests/TestSuites.h"
 
+#include <chrono>
+#include <thread>
+
 void runDatabaseTests(TestStats& stats, Database& db, const TestEnvironment& env) {
     runTest("Database - same filename/chunk allowed for different file paths", [&]() {
         const std::filesystem::path filename = "same_name_scope_database.bin";
@@ -151,5 +154,44 @@ void runDatabaseTests(TestStats& stats, Database& db, const TestEnvironment& env
         }
 
         require(found, "Inserted failed adaptive chunk should be returned as pending.");
+    }, stats);
+
+    runTest("Database - transfer metrics follow the file lifecycle", [&]() {
+        const auto initial = db.getTransferMetrics();
+        const std::filesystem::path pendingPath =
+            env.tempRoot / "db_metrics" / "multi_chunk_pending.bin";
+        const std::filesystem::path failedPath =
+            env.tempRoot / "db_metrics" / "failed.bin";
+
+        db.insertChunk(pendingPath.filename(), 0, 3, 300, 100,
+                       "metrics_hash_0", pendingPath, "pending");
+        db.insertChunk(pendingPath.filename(), 1, 3, 300, 100,
+                       "metrics_hash_1", pendingPath, "failed");
+        db.insertChunk(pendingPath.filename(), 2, 3, 300, 100,
+                       "metrics_hash_2", pendingPath, "pending");
+
+        const auto queued = db.getTransferMetrics();
+        require(queued.pendingFiles == initial.pendingFiles + 1,
+                "Three chunks for one path must count as one pending file.");
+
+        db.markFileAsFailed(failedPath);
+        const auto failed = db.getTransferMetrics();
+        require(failed.failedFiles == initial.failedFiles + 1,
+                "A failed file must increment the file-level failure counter.");
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        db.addProcessedFileAndCleanupChunks(pendingPath);
+        const auto completed = db.getTransferMetrics();
+        require(completed.pendingFiles == initial.pendingFiles,
+                "Completing a file must remove it from the pending counter.");
+        require(completed.processedFiles == initial.processedFiles + 1,
+                "Completing a file must increment the processed counter.");
+        require(!completed.lastTransferAt.empty(),
+                "Completing a file must publish the last transfer timestamp.");
+        require(initial.lastTransferAt.empty() ||
+                    completed.lastTransferAt > initial.lastTransferAt,
+                "Completing a file must advance the last transfer timestamp.");
+        require(completed.lastTransferAt.back() == 'Z',
+                "Last transfer timestamp must be expressed in UTC.");
     }, stats);
 }

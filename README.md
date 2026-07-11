@@ -34,6 +34,11 @@ Heartbeat history is retained for a configurable period and pruned
 automatically. See `DashboardWeb/README.md` and `docs/operations-guide.md` for
 metric semantics and production settings.
 
+Agent heartbeat counters are file-level snapshots read consistently from the
+local database: multiple chunks of one path count as one pending file,
+successful and failed totals reflect persisted file states, and
+`lastTransferAt` records the latest completed transfer in UTC.
+
 ## Current Security Features
 
 - AES-256-GCM encrypted packet envelope for chunk transfer.

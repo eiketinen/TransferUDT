@@ -35,15 +35,19 @@ documentacao operacional.
   componente.
 - Metricas operacionais por janela, tendencia de backlog, alertas ativos,
   filtros de logs, refresh automatico e retencao limitada de heartbeats.
+- Contadores de heartbeat corrigidos para arquivos distintos, com totais
+  persistidos de processados/falhos e horario UTC da ultima transferencia.
+- Empacotamento x64/x86 reutiliza o mesmo conjunto completo de ativos de teste
+  do wizard e rejeita conjuntos parciais para evitar identidades divergentes.
 
 ## Validacao esperada para release
 
 - Build Release limpo de Agent e Server.
 - Publish self-contained win-x64 do Dashboard.
-- E2E do Dashboard cobrindo login, heartbeat assinado, health, metricas,
-  tendencias e filtros de logs.
+- E2E do Dashboard cobrindo login, heartbeats assinados, transicao completa de
+  fila para conclusao, health, metricas, tendencias e filtros de logs.
 - Geracao do wizard Inno Setup.
-- Agent tests: 36/36.
+- Agent tests: 37/37.
 - Server tests: 44/44.
 - E2E de producao: 14/14 cenarios com handshake X.509 e CRL, incluindo reinicio
   do Agent durante transferencia, certificado revogado, CA incorreta e SHA-256.

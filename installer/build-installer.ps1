@@ -202,13 +202,23 @@ using (var rsa = RSA.Create(3072))
     $agentPrivateKey = Join-Path $OutputDirectory "TransferUDT-Agent-Test.key"
     $agentPublicKey = Join-Path $OutputDirectory "TransferUDT-Agent-Test.pub"
 
+    $assets = @($dashboardPfx, $agentPrivateKey, $agentPublicKey)
+    $existingAssets = @($assets | Where-Object { Test-Path -LiteralPath $_ })
+    if ($existingAssets.Count -eq $assets.Count) {
+        Write-Host "Reusing existing default wizard assets"
+        return
+    }
+    if ($existingAssets.Count -gt 0) {
+        throw "Default wizard assets are incomplete. Remove all three test assets before regenerating them together: $($assets -join ', ')"
+    }
+
     Write-Host "Generating default wizard assets"
     dotnet run --project $assetProject -- $dashboardPfx $DashboardTestPassword $agentPrivateKey $agentPublicKey
     if ($LASTEXITCODE -ne 0) {
         throw "Installer asset generation failed with exit code $LASTEXITCODE."
     }
 
-    foreach ($asset in @($dashboardPfx, $agentPrivateKey, $agentPublicKey)) {
+    foreach ($asset in $assets) {
         if (-not (Test-Path -LiteralPath $asset)) {
             throw "Installer asset was not generated: $asset"
         }

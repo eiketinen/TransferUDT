@@ -290,12 +290,14 @@ std::string DashboardHeartbeatClient::buildPayload() {
   const auto logs = tailLines(config.getLogFilePath(),
                               config.getDashboardLogTailLines());
   const auto errors = filterErrors(logs);
-  int pendingFiles = 0;
-  int failedFiles = 0;
+  TransferMetricsSnapshot metrics;
   try {
-    pendingFiles = static_cast<int>(database.getPendingChunks(0).size());
-    failedFiles = static_cast<int>(database.getFailedFiles().size());
-  } catch (const std::exception &) {
+    metrics = database.getTransferMetrics();
+  } catch (const std::exception &e) {
+    Logger::getInstance().warning(
+        "DashboardHeartbeatClient",
+        "Unable to collect transfer metrics for heartbeat: " +
+            std::string(e.what()));
   }
 
   const auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
@@ -311,11 +313,17 @@ std::string DashboardHeartbeatClient::buildPayload() {
   json << "\"serviceStatus\":\"running\",";
   json << "\"uptimeSeconds\":" << std::to_string(uptime) << ",";
   json << "\"watchedDirs\":" << jsonStringArray(dirs) << ",";
-  json << "\"pendingFiles\":" << std::to_string(pendingFiles) << ",";
-  json << "\"processedFiles\":0,";
-  json << "\"failedFiles\":" << std::to_string(failedFiles) << ",";
+  json << "\"pendingFiles\":" << std::to_string(metrics.pendingFiles) << ",";
+  json << "\"processedFiles\":" << std::to_string(metrics.processedFiles)
+       << ",";
+  json << "\"failedFiles\":" << std::to_string(metrics.failedFiles) << ",";
   json << "\"diskFreeBytes\":" << std::to_string(freeBytesForFirstDir(dirs)) << ",";
-  json << "\"lastTransferAt\":null,";
+  if (metrics.lastTransferAt.empty()) {
+    json << "\"lastTransferAt\":null,";
+  } else {
+    json << "\"lastTransferAt\":\"" << jsonEscape(metrics.lastTransferAt)
+         << "\",";
+  }
   json << "\"recentErrors\":" << jsonStringArray(errors) << ",";
   json << "\"recentLogs\":" << jsonStringArray(logs);
   json << "}";

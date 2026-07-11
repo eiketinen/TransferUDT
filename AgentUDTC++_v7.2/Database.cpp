@@ -710,6 +710,41 @@ std::vector<ChunkMetadata> Database::getPendingChunks(int beforeAbandoned) {
   }
   return chunks;
 }
+
+TransferMetricsSnapshot Database::getTransferMetrics() {
+  auto conn = getConnection();
+  const std::string sql = R"(
+      SELECT
+        (SELECT COUNT(DISTINCT file_path)
+           FROM chunks
+          WHERE status IN ('pending', 'failed')),
+        (SELECT COUNT(*)
+           FROM processed_files
+          WHERE status = 'processed'),
+        (SELECT COUNT(*)
+           FROM processed_files
+          WHERE status = 'failed'
+            AND file_path NOT IN (SELECT file_path FROM permanentlyFailedFiles)),
+        COALESCE(
+          (SELECT strftime('%Y-%m-%dT%H:%M:%fZ', MAX(processed_at))
+             FROM processed_files
+            WHERE status = 'processed'),
+          '');
+  )";
+
+  try {
+    SQLiteStatement stmt(conn->get(), sql);
+    if (stmt.step()) {
+      return {stmt.getInt64(0), stmt.getInt64(1), stmt.getInt64(2),
+              stmt.getText(3)};
+    }
+  } catch (const std::exception &e) {
+    logError("Failed to get transfer metrics: " + std::string(e.what()));
+    throw DatabaseException("Failed to get transfer metrics: " +
+                            std::string(e.what()));
+  }
+  return {};
+}
 /**
  * @brief Updates the status of a chunk in the database
  * @param filename Name of the file
@@ -1076,7 +1111,9 @@ void Database::addProcessedFileAndCleanupChunks(const fs::path &filePath,
     if (hasFingerprint) {
       std::string sql_update =
           "UPDATE processed_files SET status = 'processed', file_size = ?, "
-          "last_write_time_ns = ?, content_hash = ? WHERE file_path = ?;";
+          "last_write_time_ns = ?, content_hash = ?, "
+          "processed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+          "WHERE file_path = ?;";
       SQLiteStatement stmt_update(conn->get(), sql_update);
       stmt_update.bindInt64(1, fileSize);
       stmt_update.bindInt64(2, lastWriteTime);
@@ -1085,7 +1122,9 @@ void Database::addProcessedFileAndCleanupChunks(const fs::path &filePath,
       stmt_update.step();
     } else {
       std::string sql_update =
-          "UPDATE processed_files SET status = 'processed' WHERE file_path = ?;";
+          "UPDATE processed_files SET status = 'processed', "
+          "processed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+          "WHERE file_path = ?;";
       SQLiteStatement stmt_update(conn->get(), sql_update);
       stmt_update.bindText16(1, filePath.wstring());
       stmt_update.step();

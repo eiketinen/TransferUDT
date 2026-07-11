@@ -35,3 +35,10 @@ security.client_private_key_path = C:/ProgramData/TransferUDT/Agent/keys/Transfe
 ```
 
 O Dashboard recebe a chave publica correspondente em `AgentPublicKeys`, e o certificado HTTPS local de teste e instalado como confiavel no Windows para o Agent conseguir enviar heartbeat.
+
+Os tres ativos de laboratorio (`TransferUDT-Dashboard-Test.pfx`,
+`TransferUDT-Agent-Test.key` e `TransferUDT-Agent-Test.pub`) sao reutilizados
+quando ja existem, garantindo que os pacotes x64 e x86 da mesma release usem o
+mesmo par de chaves. Para regenera-los, remova os tres juntos antes do build;
+um conjunto parcial interrompe o empacotamento para evitar identidades
+inconsistentes.

@@ -68,6 +68,10 @@ reported disk space, Server completion/error counters, current chunk gauges,
 active alerts, and bucketed heartbeat trends. The requested window is limited
 to 1-168 hours and trend output is capped to 200 points.
 
+Agent gauges use persisted file-level snapshots: distinct paths with pending or
+failed chunks count once, processed and failed totals reflect file states, and
+`lastTransferAt` is the latest successful completion in UTC.
+
 Historical heartbeats older than `HeartbeatRetentionDays` are pruned after a
 new accepted heartbeat. The latest sample per Agent is retained separately.
 

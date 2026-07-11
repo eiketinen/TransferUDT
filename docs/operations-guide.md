@@ -67,7 +67,9 @@ Indicadores principais:
 
 - Agents online: Agents com heartbeat recente.
 - Agents offline: Agents conhecidos sem heartbeat recente.
-- Arquivos pendentes: itens aguardando envio/finalizacao.
+- Arquivos pendentes: caminhos distintos com chunks aguardando
+  envio/finalizacao; varios chunks do mesmo arquivo contam uma vez.
+- Arquivos processados: arquivos persistidos pelo Agent como concluidos.
 - Falhas: falhas reportadas pelo Agent ou Server.
 - Server: estado de DB, log, chunks e reconstruidos.
 - Logs: ultimas mensagens de Agent e Server.
@@ -78,6 +80,10 @@ Indicadores principais:
 - Tendencia de backlog: ultimo heartbeat de cada Agent por bucket de tempo.
 - Alertas ativos: Agent offline, servico fora de `running`, arquivo com falha ou
   disco livre abaixo do limite.
+
+Os contadores do Agent sao obtidos em uma unica leitura consistente do banco
+local. `lastTransferAt` corresponde a conclusao mais recente e e enviado em UTC;
+sem transferencia concluida, seu valor permanece `null`.
 
 Probes para monitoramento externo:
 

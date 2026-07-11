@@ -17,6 +17,13 @@ class SQLiteStatement;
 
 namespace fs = std::filesystem;
 
+struct TransferMetricsSnapshot {
+  int64_t pendingFiles = 0;
+  int64_t processedFiles = 0;
+  int64_t failedFiles = 0;
+  std::string lastTransferAt;
+};
+
 /**
  * RAII helper that manages one SQLite transaction scope.
  * It starts a transaction in the constructor and rolls it back in the
@@ -68,6 +75,9 @@ public:
 
   /// Returns pending chunks that match the abandonment age threshold.
   std::vector<ChunkMetadata> getPendingChunks(int beforeAbandoned);
+
+  /// Returns file-level transfer counters from one consistent database read.
+  TransferMetricsSnapshot getTransferMetrics();
 
   /// Updates the status of a specific chunk.
   void updateChunkStatus(const fs::path &filePath, int chunkNumber,

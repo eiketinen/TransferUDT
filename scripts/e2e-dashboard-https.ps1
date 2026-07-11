@@ -159,6 +159,26 @@ if (args[0] == "exercise")
     using var login = await http.PostAsJsonAsync(baseUrl + "/api/login", new { password });
     login.EnsureSuccessStatusCode();
 
+    using var rsa = RSA.Create();
+    rsa.ImportFromPem(File.ReadAllText(privateKeyPath));
+
+    async Task SendHeartbeatAsync(object heartbeat)
+    {
+        var body = JsonSerializer.Serialize(heartbeat, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        var canonical = timestamp + "\n" + nonce + "\n" + body;
+        var signature = Convert.ToHexString(rsa.SignData(Encoding.UTF8.GetBytes(canonical), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)).ToLowerInvariant();
+        using var request = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/agents/heartbeat");
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+        request.Headers.Add("X-Client-Id", "agent-default");
+        request.Headers.Add("X-Timestamp", timestamp);
+        request.Headers.Add("X-Nonce", nonce);
+        request.Headers.Add("X-Signature", signature);
+        using var response = await http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+    }
+
     var heartbeat = new
     {
         clientId = "agent-default",
@@ -175,21 +195,7 @@ if (args[0] == "exercise")
         recentErrors = Array.Empty<string>(),
         recentLogs = new[] { "[INFO] heartbeat e2e" }
     };
-    var body = JsonSerializer.Serialize(heartbeat, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-    var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
-    var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
-    using var rsa = RSA.Create();
-    rsa.ImportFromPem(File.ReadAllText(privateKeyPath));
-    var canonical = timestamp + "\n" + nonce + "\n" + body;
-    var signature = Convert.ToHexString(rsa.SignData(Encoding.UTF8.GetBytes(canonical), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)).ToLowerInvariant();
-    using var request = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/agents/heartbeat");
-    request.Content = new StringContent(body, Encoding.UTF8, "application/json");
-    request.Headers.Add("X-Client-Id", "agent-default");
-    request.Headers.Add("X-Timestamp", timestamp);
-    request.Headers.Add("X-Nonce", nonce);
-    request.Headers.Add("X-Signature", signature);
-    using var heartbeatResponse = await http.SendAsync(request);
-    heartbeatResponse.EnsureSuccessStatusCode();
+    await SendHeartbeatAsync(heartbeat);
 
     var overview = await http.GetStringAsync(baseUrl + "/api/overview");
     var agents = await http.GetStringAsync(baseUrl + "/api/agents");
@@ -204,6 +210,31 @@ if (args[0] == "exercise")
     if (!metrics.Contains("\"processedFiles\":2")) throw new Exception("Expected processed file gauge in metrics.");
     if (!metrics.Contains("\"reportingAgents\":1")) throw new Exception("Expected Agent trend point.");
     if (!filteredLogs.Contains("heartbeat e2e")) throw new Exception("Expected filtered Agent log.");
+
+    var completedAt = DateTimeOffset.UtcNow;
+    await SendHeartbeatAsync(new
+    {
+        clientId = "agent-default",
+        hostname = "agent-e2e",
+        agentVersion = "AgentUDTC++",
+        serviceStatus = "running",
+        uptimeSeconds = 20,
+        watchedDirs = new[] { "C:/TransferUDT/Agent/incoming" },
+        pendingFiles = 0,
+        processedFiles = 3,
+        failedFiles = 0,
+        diskFreeBytes = 123456789,
+        lastTransferAt = completedAt,
+        recentErrors = Array.Empty<string>(),
+        recentLogs = new[] { "[INFO] heartbeat e2e transfer completed" }
+    });
+
+    var completedMetrics = await http.GetStringAsync(baseUrl + "/api/metrics?windowHours=24");
+    var completedAgents = await http.GetStringAsync(baseUrl + "/api/agents");
+    if (!completedMetrics.Contains("\"heartbeatSamples\":2")) throw new Exception("Expected two heartbeat samples after lifecycle transition.");
+    if (!completedMetrics.Contains("\"pendingFiles\":0")) throw new Exception("Expected pending file gauge to return to zero.");
+    if (!completedMetrics.Contains("\"processedFiles\":3")) throw new Exception("Expected processed file gauge to increment after completion.");
+    if (!completedAgents.Contains("\"lastTransferAt\":")) throw new Exception("Expected last transfer timestamp after completion.");
     Console.WriteLine("PASS");
 }
 "@ | Set-Content -Path $helperProgram -Encoding UTF8
@@ -259,7 +290,7 @@ try {
 - Base URL: $baseUrl
 - Dashboard DB: $dbPath
 - Agent public key: $publicKeyPath
-- Validated: public liveness, protected readiness, operator login, signed heartbeat, metrics, trends, alerts, overview, agents, and filtered logs.
+- Validated: public liveness, protected readiness, operator login, signed heartbeat lifecycle from pending to completed, file-level metrics, last transfer time, trends, alerts, overview, agents, and filtered logs.
 - Transport mode: $(if ($UseHttpForLocalTest) { "HTTP test mode" } else { "HTTPS" })
 "@
     $reportPath = Join-Path $RunRoot "report.md"

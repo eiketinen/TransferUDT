@@ -174,6 +174,10 @@ dashboard.heartbeat.interval.seconds = 15
 security.client_private_key_path = C:/ProgramData/TransferUDT/Agent/keys/agent-001.key
 ```
 
+Cada heartbeat publica contadores por arquivo, e nao por chunk. Um arquivo com
+varios chunks pendentes incrementa a fila apenas uma vez; conclusoes, falhas e o
+horario UTC da ultima transferencia sao lidos do estado persistido do Agent.
+
 ## Configuracao minima do Server
 
 ```properties

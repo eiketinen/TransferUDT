@@ -4,7 +4,7 @@ title: "Operational observability and health model"
 status: approved
 authors: ["eiketinen", "codex"]
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-07-11
 supersedes: []
 superseded_by: null
 related_adrs: []
@@ -58,6 +58,11 @@ health remain behind operator authentication. Only liveness is public.
 ## Metric semantics
 
 - Agent counters are the latest signed heartbeat values.
+- Agent pending counts use distinct file paths instead of chunk totals;
+  processed and failed counts come from persisted file states in the same
+  database snapshot.
+- `lastTransferAt` is the latest persisted completion time in UTC, or `null`
+  before the first successful completion.
 - Trend points use the latest heartbeat per Agent in each time bucket.
 - Server completion and error counters use persisted SQLite timestamps.
 - Pending and failed chunk counts are current gauges, not event totals.
@@ -83,7 +88,8 @@ health remain behind operator authentication. Only liveness is public.
 
 - Verify public liveness before login.
 - Verify detailed health remains authenticated.
-- Submit signed heartbeat samples and validate current metrics and trends.
+- Submit signed heartbeat samples for pending and completed lifecycle states,
+  then validate counters, completion time, and trends.
 - Verify bounded window and bucket parameters.
 - Exercise log filters and automatic UI refresh behavior.
 - Build the Dashboard and regenerate x64 and x86 production packages.
