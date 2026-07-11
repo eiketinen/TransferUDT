@@ -33,7 +33,9 @@ $env:NODE_TLS_REJECT_UNAUTHORIZED='0'
 node -e "async function main(){const b='https://localhost:8443';const l=await fetch(b+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:'SENHA_OPERADOR'})});const c=l.headers.get('set-cookie');for(const p of ['/api/overview','/api/agents','/api/logs?limit=5']){const r=await fetch(b+p,{headers:{cookie:c}});console.log(p,r.status,await r.text())}}main()"
 ```
 
-Se `/api/overview` mostra Agent online mas a UI nao atualiza, use `Ctrl+F5`.
+Inclua tambem `/api/health` e `/api/metrics?windowHours=24` na lista de APIs do
+comando acima. Se `/api/overview` mostra Agent online mas a UI nao atualiza, use
+`Ctrl+F5`.
 
 Se `/api/agents` estiver vazio:
 
@@ -41,6 +43,16 @@ Se `/api/agents` estiver vazio:
 - Confirme `dashboard.url=https://host:8443`.
 - Confirme chave privada do Agent e chave publica cadastrada no Dashboard.
 - Confira `agent.log` por rejeicoes HTTP 400/401.
+
+## Dashboard mostra estado degraded
+
+- `serverDatabase`: confirme o caminho e permissao de leitura do banco do Server.
+- `serverLog`: confirme `ServerLogPath` e a existencia do log.
+- `agents`: confirme heartbeat dentro de `AgentOfflineAfterSeconds`.
+
+`degraded` significa que o Dashboard esta vivo, mas parte dos dados operacionais
+nao esta pronta. `unhealthy` indica que o proprio banco do Dashboard nao pode ser
+consultado. Use `/health/live` apenas para liveness e `/api/health` para readiness.
 
 ## Agent nao conecta ao Server
 

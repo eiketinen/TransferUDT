@@ -589,6 +589,11 @@ function Install-Dashboard {
     "OperatorPasswordEnv": "TRANSFERUDT_DASHBOARD_OPERATOR_PASSWORD",
     "HeartbeatSkewSeconds": 300,
     "AgentOfflineAfterSeconds": 60,
+    "HeartbeatRetentionDays": 30,
+    "MetricsWindowHours": 24,
+    "MetricsBucketMinutes": 60,
+    "LowDiskWarningBytes": 5368709120,
+    "AutoRefreshSeconds": 30,
     "AgentPublicKeys": $agentPublicKeysJson
   }
 }

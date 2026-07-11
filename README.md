@@ -22,6 +22,18 @@ Product documentation:
 - `docs/security.md`
 - `docs/release-package.md`
 
+## Observability
+
+The HTTPS Dashboard provides signed Agent heartbeats, authenticated detailed
+health, bounded operational metrics, backlog trends, active alerts, transfer
+history, and filtered Agent/Server logs. `GET /health/live` is intentionally
+minimal and public for service probes; `/api/health` and `/api/metrics` require
+an authenticated operator session.
+
+Heartbeat history is retained for a configurable period and pruned
+automatically. See `DashboardWeb/README.md` and `docs/operations-guide.md` for
+metric semantics and production settings.
+
 ## Current Security Features
 
 - AES-256-GCM encrypted packet envelope for chunk transfer.

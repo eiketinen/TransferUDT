@@ -223,6 +223,11 @@ Campos principais:
     "RequireHttps": true,
     "CertificatePath": "C:/ProgramData/TransferUDT/Dashboard/certs/dashboard.pfx",
     "DatabasePath": "C:/ProgramData/TransferUDT/Dashboard/db/dashboard.db",
+    "HeartbeatRetentionDays": 30,
+    "MetricsWindowHours": 24,
+    "MetricsBucketMinutes": 60,
+    "LowDiskWarningBytes": 5368709120,
+    "AutoRefreshSeconds": 30,
     "ServerDatabasePath": "C:/ProgramData/TransferUDT/Server/db/server.db",
     "ServerLogPath": "C:/ProgramData/TransferUDT/Server/logs/server.log"
   }

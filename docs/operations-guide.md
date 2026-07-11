@@ -71,6 +71,36 @@ Indicadores principais:
 - Falhas: falhas reportadas pelo Agent ou Server.
 - Server: estado de DB, log, chunks e reconstruidos.
 - Logs: ultimas mensagens de Agent e Server.
+- Saude dos componentes: distingue `healthy`, `degraded` e `unhealthy` para
+  banco do Dashboard, banco/log do Server e heartbeats dos Agents.
+- Concluidas e erros na janela: eventos persistidos pelo Server nas ultimas 6,
+  24, 72 ou 168 horas.
+- Tendencia de backlog: ultimo heartbeat de cada Agent por bucket de tempo.
+- Alertas ativos: Agent offline, servico fora de `running`, arquivo com falha ou
+  disco livre abaixo do limite.
+
+Probes para monitoramento externo:
+
+```text
+GET https://servidor:8443/health/live
+GET https://servidor:8443/api/health
+GET https://servidor:8443/api/metrics?windowHours=24
+```
+
+Use somente `/health/live` sem autenticacao. Os dois endpoints `/api/*` exigem
+sessao de operador e retornam detalhes operacionais. Nao use a liveness para
+decidir se bancos, logs ou Agents estao prontos; essa decisao pertence ao
+readiness autenticado.
+
+Defaults do historico e painel:
+
+```json
+"HeartbeatRetentionDays": 30,
+"MetricsWindowHours": 24,
+"MetricsBucketMinutes": 60,
+"LowDiskWarningBytes": 5368709120,
+"AutoRefreshSeconds": 30
+```
 
 ## Validacoes apos manutencao
 

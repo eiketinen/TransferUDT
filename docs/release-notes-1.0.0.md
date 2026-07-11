@@ -31,11 +31,17 @@ documentacao operacional.
 - Revogacao fail-closed por CRL PEM, rollover com CAs sobrepostas, recarga de
   material criptografico por handshake e alertas de expiracao configuraveis.
 - Heartbeat do Agent para Dashboard.
+- Health model com liveness publica minima e readiness autenticado por
+  componente.
+- Metricas operacionais por janela, tendencia de backlog, alertas ativos,
+  filtros de logs, refresh automatico e retencao limitada de heartbeats.
 
 ## Validacao esperada para release
 
 - Build Release limpo de Agent e Server.
 - Publish self-contained win-x64 do Dashboard.
+- E2E do Dashboard cobrindo login, heartbeat assinado, health, metricas,
+  tendencias e filtros de logs.
 - Geracao do wizard Inno Setup.
 - Agent tests: 36/36.
 - Server tests: 44/44.

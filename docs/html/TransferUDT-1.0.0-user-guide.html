@@ -496,9 +496,16 @@ security.client_psk.agent-001 = use-um-segredo-forte-com-32-ou-mais-caracteres</
               <tr><td>Agents offline</td><td>Agents conhecidos sem heartbeat recente.</td><td>Verificar servico, rede e URL do Dashboard no Agent.</td></tr>
               <tr><td>Arquivos pendentes</td><td>Itens aguardando envio ou finalizacao.</td><td>Monitorar se a fila diminui.</td></tr>
               <tr><td>Falhas</td><td>Erros reportados por Agent ou Server.</td><td>Ler logs e corrigir causa raiz.</td></tr>
+              <tr><td>Saude dos componentes</td><td>Readiness do banco do Dashboard, banco/log do Server e heartbeats.</td><td>Investigar componentes <code>degraded</code> ou <code>unhealthy</code>.</td></tr>
+              <tr><td>Concluidas e erros na janela</td><td>Eventos persistidos pelo Server em 6 horas a 7 dias.</td><td>Comparar volume concluido, falhas e backlog.</td></tr>
+              <tr><td>Tendencia de backlog</td><td>Fila e falhas reportadas por bucket de heartbeat.</td><td>Verificar se a fila reduz depois da recuperacao.</td></tr>
+              <tr><td>Alertas ativos</td><td>Agent offline, servico parado, falhas ou disco baixo.</td><td>Tratar primeiro os alertas de erro.</td></tr>
             </tbody>
           </table>
         </div>
+        <p><code>/health/live</code> pode ser usado por probes sem login. Os
+        endpoints detalhados <code>/api/health</code> e <code>/api/metrics</code>
+        exigem sessao autenticada do operador.</p>
       </section>
 
       <section id="validacao" data-search>

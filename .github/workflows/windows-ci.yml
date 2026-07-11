@@ -17,6 +17,11 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
       - name: Restore vcpkg packages for Server
         shell: pwsh
         run: |
@@ -55,3 +60,11 @@ jobs:
         shell: pwsh
         run: |
           & "$env:LOCALAPPDATA\AgentUDTCppTests\bin\Debug\AgentUDTC++Tests.exe"
+
+      - name: Build Dashboard
+        shell: pwsh
+        run: dotnet build DashboardWeb\DashboardWeb.csproj --configuration Release
+
+      - name: Run Dashboard observability E2E
+        shell: pwsh
+        run: .\scripts\e2e-dashboard-https.ps1 -UseHttpForLocalTest

@@ -44,6 +44,7 @@ builder.Services.AddSingleton<DashboardStore>();
 builder.Services.AddSingleton<HeartbeatSignatureVerifier>();
 builder.Services.AddSingleton<ServerReadModel>();
 builder.Services.AddSingleton<SessionStore>();
+builder.Services.AddSingleton<ObservabilityService>();
 
 var app = builder.Build();
 app.UseForwardedHeaders(new ForwardedHeadersOptions
@@ -118,6 +119,13 @@ app.MapPost("/api/login", async (HttpContext context, SessionStore sessions, Das
 app.MapGet("/api/session", (HttpContext context, SessionStore sessions) =>
     Results.Ok(new { authenticated = sessions.IsAuthenticated(context.Request.Cookies["transferudt_session"]) }));
 
+app.MapGet("/health/live", () => Results.Ok(new
+{
+    status = "ok",
+    generatedAt = DateTimeOffset.UtcNow,
+    application = "TransferUDT Dashboard"
+}));
+
 app.MapPost("/api/agents/heartbeat", async (
     HttpContext context,
     DashboardSettings cfg,
@@ -175,9 +183,15 @@ app.MapGet("/api/overview", (DashboardStore dashboardStore, ServerReadModel serv
         failedFiles = agents.Sum(a => a.FailedFiles),
         pendingFiles = agents.Sum(a => a.PendingFiles),
         server = server.GetStatus(),
-        recentAlerts = dashboardStore.GetAlerts(cfg.AgentOfflineAfterSeconds, 20)
+        recentAlerts = dashboardStore.GetAlerts(cfg.AgentOfflineAfterSeconds, cfg.LowDiskWarningBytes, 20)
     });
 });
+
+app.MapGet("/api/health", (ObservabilityService observability) =>
+    Results.Ok(observability.GetHealth()));
+
+app.MapGet("/api/metrics", (int? windowHours, ObservabilityService observability) =>
+    Results.Ok(observability.GetMetrics(windowHours)));
 
 app.MapGet("/api/agents", (DashboardStore dashboardStore, DashboardSettings cfg) =>
     Results.Ok(dashboardStore.GetAgents(cfg.AgentOfflineAfterSeconds)));
@@ -254,6 +268,11 @@ sealed class DashboardSettings
     public string OperatorPasswordEnv { get; set; } = "TRANSFERUDT_DASHBOARD_OPERATOR_PASSWORD";
     public int HeartbeatSkewSeconds { get; set; } = 300;
     public int AgentOfflineAfterSeconds { get; set; } = 60;
+    public int HeartbeatRetentionDays { get; set; } = 30;
+    public int MetricsWindowHours { get; set; } = 24;
+    public int MetricsBucketMinutes { get; set; } = 60;
+    public long LowDiskWarningBytes { get; set; } = 5L * 1024 * 1024 * 1024;
+    public int AutoRefreshSeconds { get; set; } = 30;
     public Dictionary<string, string> AgentPublicKeys { get; set; } = new();
 
     public void Normalize()
@@ -261,6 +280,11 @@ sealed class DashboardSettings
         if (HttpsPort <= 0 || HttpsPort > 65535) HttpsPort = 8443;
         if (HeartbeatSkewSeconds <= 0) HeartbeatSkewSeconds = 300;
         if (AgentOfflineAfterSeconds <= 0) AgentOfflineAfterSeconds = 60;
+        HeartbeatRetentionDays = Math.Clamp(HeartbeatRetentionDays, 1, 3650);
+        MetricsWindowHours = Math.Clamp(MetricsWindowHours, 1, 168);
+        MetricsBucketMinutes = Math.Clamp(MetricsBucketMinutes, 5, 1440);
+        if (LowDiskWarningBytes < 0) LowDiskWarningBytes = 0;
+        AutoRefreshSeconds = Math.Clamp(AutoRefreshSeconds, 10, 3600);
     }
 }
 
@@ -435,6 +459,7 @@ sealed class DashboardStore(DashboardSettings settings)
                 """,
             requireClientIdPrimaryKey: true);
         ExecuteNonQuery(conn, "CREATE INDEX IF NOT EXISTS idx_agent_heartbeats_client_time ON agent_heartbeats(client_id, received_at);");
+        ExecuteNonQuery(conn, "CREATE INDEX IF NOT EXISTS idx_agent_heartbeats_time ON agent_heartbeats(received_at);");
     }
 
     public void UpsertHeartbeat(AgentHeartbeat heartbeat, string remoteAddress)
@@ -457,6 +482,13 @@ sealed class DashboardStore(DashboardSettings settings)
                 payload_json = excluded.payload_json,
                 received_at = excluded.received_at;
             """, heartbeat.ClientId, heartbeat.Hostname, remoteAddress, json, now);
+        using (var prune = conn.CreateCommand())
+        {
+            prune.Transaction = tx;
+            prune.CommandText = "DELETE FROM agent_heartbeats WHERE received_at < $cutoff;";
+            prune.Parameters.AddWithValue("$cutoff", now.AddDays(-settings.HeartbeatRetentionDays).ToString("O"));
+            prune.ExecuteNonQuery();
+        }
         tx.Commit();
     }
 
@@ -487,17 +519,99 @@ sealed class DashboardStore(DashboardSettings settings)
             .Take(limit)
             .ToList();
 
-    public List<object> GetAlerts(int offlineAfterSeconds, int limit)
+    public List<ObservabilityAlert> GetAlerts(int offlineAfterSeconds, long lowDiskWarningBytes, int limit)
     {
-        var alerts = new List<object>();
+        var alerts = new List<ObservabilityAlert>();
         foreach (var agent in GetAgents(offlineAfterSeconds))
         {
             if (!agent.IsOnline)
-                alerts.Add(new { severity = "WARN", source = "agent", agent.ClientId, message = "Agent offline.", at = agent.LastHeartbeatAt });
+                alerts.Add(new("WARN", "agent", agent.ClientId, "Agent offline.", agent.LastHeartbeatAt));
+            if (!agent.ServiceStatus.Equals("running", StringComparison.OrdinalIgnoreCase))
+                alerts.Add(new("WARN", "agent", agent.ClientId, $"Estado do servico: '{agent.ServiceStatus}'.", agent.LastHeartbeatAt));
             if (agent.FailedFiles > 0)
-                alerts.Add(new { severity = "ERROR", source = "agent", agent.ClientId, message = $"{agent.FailedFiles} failed file(s).", at = agent.LastHeartbeatAt });
+                alerts.Add(new("ERROR", "agent", agent.ClientId, $"{agent.FailedFiles} arquivo(s) com falha.", agent.LastHeartbeatAt));
+            if (lowDiskWarningBytes > 0 && agent.DiskFreeBytes >= 0 && agent.DiskFreeBytes < lowDiskWarningBytes)
+                alerts.Add(new("WARN", "agent", agent.ClientId, "Espaco livre em disco abaixo do limite configurado.", agent.LastHeartbeatAt));
         }
-        return alerts.Take(limit).ToList<object>();
+        return alerts
+            .OrderBy(a => a.Severity == "ERROR" ? 0 : 1)
+            .ThenByDescending(a => a.At)
+            .Take(limit)
+            .ToList();
+    }
+
+    public HealthComponent GetHealthComponent()
+    {
+        try
+        {
+            using var conn = new SqliteConnection(ConnectionString);
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT 1;";
+            cmd.ExecuteScalar();
+            return new("dashboardDatabase", "healthy", "Banco do Dashboard disponivel.");
+        }
+        catch
+        {
+            return new("dashboardDatabase", "unhealthy", "Banco do Dashboard indisponivel.");
+        }
+    }
+
+    public long CountHeartbeats(int windowHours)
+    {
+        using var conn = new SqliteConnection(ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM agent_heartbeats WHERE received_at >= $cutoff;";
+        cmd.Parameters.AddWithValue("$cutoff", DateTimeOffset.UtcNow.AddHours(-windowHours).ToString("O"));
+        return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L);
+    }
+
+    public List<AgentTrendPoint> GetTrend(int windowHours, int bucketMinutes)
+    {
+        var maxPoints = 200;
+        var effectiveBucketMinutes = Math.Max(bucketMinutes, (int)Math.Ceiling(windowHours * 60d / maxPoints));
+        var cutoff = DateTimeOffset.UtcNow.AddHours(-windowHours);
+        using var conn = new SqliteConnection(ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT payload_json, received_at FROM agent_heartbeats WHERE received_at >= $cutoff ORDER BY received_at;";
+        cmd.Parameters.AddWithValue("$cutoff", cutoff.ToString("O"));
+        using var reader = cmd.ExecuteReader();
+        var samples = new List<(AgentHeartbeat Heartbeat, DateTimeOffset ReceivedAt)>();
+        while (reader.Read())
+        {
+            try
+            {
+                var heartbeat = JsonSerializer.Deserialize<AgentHeartbeat>(reader.GetString(0), JsonOptions.Default);
+                if (heartbeat is not null)
+                    samples.Add((heartbeat, DateTimeOffset.Parse(reader.GetString(1))));
+            }
+            catch (JsonException)
+            {
+                // Ignore one malformed historical sample without hiding current health.
+            }
+        }
+
+        var bucketSeconds = effectiveBucketMinutes * 60L;
+        return samples
+            .GroupBy(sample => sample.ReceivedAt.ToUnixTimeSeconds() / bucketSeconds * bucketSeconds)
+            .OrderBy(group => group.Key)
+            .Select(group =>
+            {
+                var latestByAgent = group
+                    .GroupBy(sample => sample.Heartbeat.ClientId, StringComparer.Ordinal)
+                    .Select(agent => agent.OrderByDescending(sample => sample.ReceivedAt).First().Heartbeat)
+                    .ToList();
+                var freeDiskValues = latestByAgent.Select(agent => agent.DiskFreeBytes).Where(bytes => bytes >= 0).ToList();
+                return new AgentTrendPoint(
+                    DateTimeOffset.FromUnixTimeSeconds(group.Key),
+                    latestByAgent.Count,
+                    latestByAgent.Sum(agent => agent.PendingFiles),
+                    latestByAgent.Sum(agent => agent.FailedFiles),
+                    freeDiskValues.Count == 0 ? 0 : freeDiskValues.Min());
+            })
+            .ToList();
     }
 
     private static void Execute(SqliteConnection conn, SqliteTransaction tx, string sql, string clientId, string hostname, string remoteAddress, string json, DateTimeOffset receivedAt)
@@ -648,6 +762,50 @@ sealed class ServerReadModel(DashboardSettings settings)
         return items;
     }
 
+    public List<HealthComponent> GetHealthComponents()
+    {
+        var components = new List<HealthComponent>();
+        if (!File.Exists(settings.ServerDatabasePath))
+        {
+            components.Add(new("serverDatabase", "degraded", "Banco do Server nao encontrado."));
+        }
+        else
+        {
+            try
+            {
+                using var conn = OpenReadOnly();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT 1;";
+                cmd.ExecuteScalar();
+                components.Add(new("serverDatabase", "healthy", "Banco do Server disponivel para leitura."));
+            }
+            catch
+            {
+                components.Add(new("serverDatabase", "degraded", "Banco do Server indisponivel para leitura."));
+            }
+        }
+        components.Add(File.Exists(settings.ServerLogPath)
+            ? new("serverLog", "healthy", "Log do Server disponivel.")
+            : new("serverLog", "degraded", "Log do Server nao encontrado."));
+        return components;
+    }
+
+    public ServerMetrics GetMetrics(int windowHours)
+    {
+        if (!File.Exists(settings.ServerDatabasePath))
+            return new(0, 0, 0, 0, 0, 0, null);
+
+        var modifier = $"-{windowHours} hours";
+        return new(
+            Scalar("SELECT COUNT(*) FROM reconstructed_files;"),
+            Scalar("SELECT COUNT(*) FROM reconstructed_files WHERE created_at >= datetime('now', $window);", modifier),
+            Scalar("SELECT COUNT(*) FROM error_logs WHERE created_at >= datetime('now', $window);", modifier),
+            Scalar("SELECT COUNT(*) FROM chunks WHERE status = 'pending';"),
+            Scalar("SELECT COUNT(*) FROM chunks WHERE status = 'failed';"),
+            Scalar("SELECT COUNT(*) FROM chunks;"),
+            ScalarText("SELECT MAX(created_at) FROM reconstructed_files;"));
+    }
+
     public List<LogLine> GetServerLogs(string? level, string? query, int limit) =>
         TailLines(settings.ServerLogPath, limit)
             .Select(line => DashboardStore.ParseLogLine("server", null, line))
@@ -668,6 +826,38 @@ sealed class ServerReadModel(DashboardSettings settings)
         catch
         {
             return 0L;
+        }
+    }
+
+    private long Scalar(string sql, string window)
+    {
+        try
+        {
+            using var conn = OpenReadOnly();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.Parameters.AddWithValue("$window", window);
+            return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L);
+        }
+        catch
+        {
+            return 0L;
+        }
+    }
+
+    private string? ScalarText(string sql)
+    {
+        try
+        {
+            using var conn = OpenReadOnly();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            var value = cmd.ExecuteScalar();
+            return value is null or DBNull ? null : Convert.ToString(value);
+        }
+        catch
+        {
+            return null;
         }
     }
 

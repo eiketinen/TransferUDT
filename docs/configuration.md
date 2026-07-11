@@ -218,3 +218,22 @@ comma-separated IPv4 allowlist checked immediately after accept.
 ## Paths
 
 Prefer environment-specific local paths in `config.properties`. Do not commit them. The example files use safe placeholder paths.
+
+## Dashboard Observability
+
+Dashboard observability is configured in `DashboardWeb/appsettings.json` or the
+installed Dashboard `appsettings.json`, not in Agent/Server
+`config.properties`.
+
+```json
+"HeartbeatRetentionDays": 30,
+"MetricsWindowHours": 24,
+"MetricsBucketMinutes": 60,
+"LowDiskWarningBytes": 5368709120,
+"AutoRefreshSeconds": 30
+```
+
+Retention is bounded to 1-3650 days. Metric windows are bounded to 1-168 hours,
+buckets to 5-1440 minutes, and automatic refresh to 10-3600 seconds. A zero
+disk threshold disables low-disk alerts. Detailed health and metrics remain
+behind Dashboard operator authentication.

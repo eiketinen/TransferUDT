@@ -11,55 +11,112 @@
     <section id="login" class="login-panel">
       <h1>TransferUDT Dashboard</h1>
       <form id="login-form">
-        <label>Senha do operador</label>
+        <label for="password">Senha do operador</label>
         <input id="password" type="password" autocomplete="current-password" required>
         <button type="submit">Entrar</button>
       </form>
-      <p id="login-error"></p>
+      <p id="login-error" role="alert"></p>
     </section>
 
     <section id="app" hidden>
       <header class="topbar">
         <div>
-          <h1>TransferUDT</h1>
+          <div class="title-line">
+            <h1>TransferUDT</h1>
+            <span id="overall-health" class="status-badge neutral">verificando</span>
+          </div>
           <span id="updated-at"></span>
         </div>
-        <button id="refresh">Atualizar</button>
+        <div class="toolbar">
+          <label class="toggle" for="auto-refresh">
+            <input id="auto-refresh" type="checkbox" checked>
+            <span>Atualizacao automatica</span>
+          </label>
+          <button id="refresh" type="button">Atualizar</button>
+        </div>
       </header>
 
-      <section class="metrics">
+      <section class="metrics" aria-label="Indicadores principais">
         <article><strong id="agents-online">0</strong><span>Agents online</span></article>
         <article><strong id="agents-offline">0</strong><span>Agents offline</span></article>
         <article><strong id="pending-files">0</strong><span>Arquivos pendentes</span></article>
-        <article><strong id="failed-files">0</strong><span>Falhas</span></article>
+        <article><strong id="failed-files">0</strong><span>Falhas nos Agents</span></article>
+        <article><strong id="completed-window">0</strong><span>Concluidas em 24h</span></article>
+        <article><strong id="server-errors-window">0</strong><span>Erros do Server em 24h</span></article>
       </section>
 
       <section class="grid">
-        <article class="panel">
-          <h2>Agents</h2>
-          <table>
-            <thead><tr><th>Client ID</th><th>Host</th><th>Status</th><th>Fila</th><th>Falhas</th><th>Último heartbeat</th></tr></thead>
-            <tbody id="agents-table"></tbody>
-          </table>
-        </article>
+        <section class="panel span-all" aria-labelledby="health-title">
+          <div class="panel-heading">
+            <h2 id="health-title">Saude dos componentes</h2>
+            <span id="heartbeat-samples" class="muted"></span>
+          </div>
+          <div id="health-components" class="health-grid"></div>
+        </section>
 
-        <article class="panel">
-          <h2>Server</h2>
+        <section class="panel" aria-labelledby="agents-title">
+          <h2 id="agents-title">Agents</h2>
+          <div class="table-wrap">
+            <table class="agents-table">
+              <thead><tr><th>Client ID</th><th>Host</th><th>Status</th><th>Fila</th><th>Falhas</th><th>Disco livre</th><th>Ultimo heartbeat</th></tr></thead>
+              <tbody id="agents-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="server-title">
+          <h2 id="server-title">Server</h2>
           <div id="server-status" class="kv"></div>
-        </article>
+        </section>
 
-        <article class="panel">
-          <h2>Transferências</h2>
-          <table>
-            <thead><tr><th>Agente</th><th>Arquivo</th><th>Status</th><th>Concluído em</th></tr></thead>
-            <tbody id="transfers-table"></tbody>
-          </table>
-        </article>
+        <section class="panel" aria-labelledby="trend-title">
+          <div class="panel-heading">
+            <h2 id="trend-title">Tendencia de backlog</h2>
+            <select id="metrics-window" aria-label="Janela de metricas">
+              <option value="6">6 horas</option>
+              <option value="24" selected>24 horas</option>
+              <option value="72">3 dias</option>
+              <option value="168">7 dias</option>
+            </select>
+          </div>
+          <div id="trend" class="trend"></div>
+        </section>
 
-        <article class="panel">
-          <h2>Logs</h2>
+        <section class="panel" aria-labelledby="alerts-title">
+          <h2 id="alerts-title">Alertas ativos</h2>
+          <div id="alerts" class="alerts"></div>
+        </section>
+
+        <section class="panel span-all" aria-labelledby="transfers-title">
+          <h2 id="transfers-title">Transferencias recentes</h2>
+          <div class="table-wrap">
+            <table class="transfers-table">
+              <thead><tr><th>Agente</th><th>Arquivo</th><th>Status</th><th>Concluido em</th></tr></thead>
+              <tbody id="transfers-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel span-all" aria-labelledby="logs-title">
+          <div class="panel-heading log-heading">
+            <h2 id="logs-title">Logs</h2>
+            <div class="filters">
+              <select id="log-source" aria-label="Origem dos logs">
+                <option value="">Todas as origens</option>
+                <option value="agent">Agent</option>
+                <option value="server">Server</option>
+              </select>
+              <select id="log-level" aria-label="Nivel dos logs">
+                <option value="">Todos os niveis</option>
+                <option value="INFO">Info</option>
+                <option value="WARN">Warn</option>
+                <option value="ERROR">Error</option>
+              </select>
+              <input id="log-query" type="search" placeholder="Buscar nos logs" aria-label="Buscar nos logs">
+            </div>
+          </div>
           <pre id="logs"></pre>
-        </article>
+        </section>
       </section>
     </section>
   </main>

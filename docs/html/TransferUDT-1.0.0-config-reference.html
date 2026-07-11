@@ -285,6 +285,7 @@
         <a href="#server">Server</a>
         <a href="#server-avancado">Server avancado</a>
         <a href="#seguranca">Seguranca</a>
+        <a href="#dashboard-observabilidade">Dashboard</a>
         <a href="#exemplos">Exemplos</a>
         <a href="#operacao">Operacao</a>
       </nav>
@@ -634,6 +635,28 @@ security.identity.mode = signed_handshake
 security.allowed_client_ids = agent-001
 security.server_private_key_path = C:/ProgramData/TransferUDT/Server/keys/server.key
 security.client_public_key.agent-001 = C:/ProgramData/TransferUDT/Server/clients/agent-001.pub</code></pre>
+        </div>
+      </section>
+
+      <section id="dashboard-observabilidade" data-search>
+        <h2>Dashboard e observabilidade</h2>
+        <p>Estes campos pertencem ao bloco <code>Dashboard</code> de
+        <code>appsettings.json</code>.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parametro</th><th>Default</th><th>Unidade</th><th>Explicacao</th><th>Validacao e impacto</th></tr></thead>
+            <tbody>
+              <tr><td><code>HeartbeatRetentionDays</code></td><td><code>30</code></td><td>dias</td><td>Retencao do historico de heartbeats.</td><td>Entre 1 e 3650. O ultimo heartbeat de cada Agent permanece em tabela separada.</td></tr>
+              <tr><td><code>MetricsWindowHours</code></td><td><code>24</code></td><td>horas</td><td>Janela inicial para contadores e tendencias.</td><td>Entre 1 e 168.</td></tr>
+              <tr><td><code>MetricsBucketMinutes</code></td><td><code>60</code></td><td>minutos</td><td>Agrupamento temporal do historico.</td><td>Entre 5 e 1440; a API limita a serie a 200 pontos.</td></tr>
+              <tr><td><code>LowDiskWarningBytes</code></td><td><code>5368709120</code></td><td>bytes</td><td>Limite de disco livre para alerta de Agent.</td><td>Zero desliga o alerta.</td></tr>
+              <tr><td><code>AutoRefreshSeconds</code></td><td><code>30</code></td><td>segundos</td><td>Intervalo de atualizacao automatica da interface.</td><td>Entre 10 e 3600.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          <strong>Probes:</strong> <code>/health/live</code> e publico e minimo.
+          <code>/api/health</code> e <code>/api/metrics</code> exigem login do operador.
         </div>
       </section>
 

@@ -139,7 +139,7 @@ if (args[0] == "exercise")
     {
         try
         {
-            using var ready = await http.GetAsync(baseUrl + "/api/session");
+            using var ready = await http.GetAsync(baseUrl + "/health/live");
             if (ready.IsSuccessStatusCode) break;
         }
         catch (Exception ex)
@@ -148,6 +148,12 @@ if (args[0] == "exercise")
         }
         await Task.Delay(300);
         if (attempt == 49) throw new Exception("Dashboard did not become ready: " + lastReadyError?.Message, lastReadyError);
+    }
+
+    using (var protectedHealth = await http.GetAsync(baseUrl + "/api/health"))
+    {
+        if (protectedHealth.StatusCode != HttpStatusCode.Unauthorized)
+            throw new Exception("Detailed health endpoint must require authentication.");
     }
 
     using var login = await http.PostAsJsonAsync(baseUrl + "/api/login", new { password });
@@ -187,8 +193,17 @@ if (args[0] == "exercise")
 
     var overview = await http.GetStringAsync(baseUrl + "/api/overview");
     var agents = await http.GetStringAsync(baseUrl + "/api/agents");
+    var health = await http.GetStringAsync(baseUrl + "/api/health");
+    var metrics = await http.GetStringAsync(baseUrl + "/api/metrics?windowHours=24");
+    var filteredLogs = await http.GetStringAsync(baseUrl + "/api/logs?source=agent&level=INFO&q=heartbeat&limit=20");
     if (!overview.Contains("\"agentsOnline\":1")) throw new Exception("Expected one online agent in overview.");
     if (!agents.Contains("\"clientId\":\"agent-default\"")) throw new Exception("Expected agent-default in agents API.");
+    if (!health.Contains("\"name\":\"agents\",\"status\":\"healthy\"")) throw new Exception("Expected healthy Agent component.");
+    if (!metrics.Contains("\"heartbeatSamples\":1")) throw new Exception("Expected one heartbeat sample in metrics.");
+    if (!metrics.Contains("\"pendingFiles\":1")) throw new Exception("Expected pending file gauge in metrics.");
+    if (!metrics.Contains("\"processedFiles\":2")) throw new Exception("Expected processed file gauge in metrics.");
+    if (!metrics.Contains("\"reportingAgents\":1")) throw new Exception("Expected Agent trend point.");
+    if (!filteredLogs.Contains("heartbeat e2e")) throw new Exception("Expected filtered Agent log.");
     Console.WriteLine("PASS");
 }
 "@ | Set-Content -Path $helperProgram -Encoding UTF8
@@ -207,6 +222,7 @@ $dashboardStderr = Join-Path $RunRoot "dashboard.stderr.log"
 $argumentLine = @(
     "run",
     "--project `"$dashboardProject`"",
+    "--configuration Release",
     "--no-build",
     "--",
     "--Dashboard:HttpsPort=$Port",
@@ -243,7 +259,7 @@ try {
 - Base URL: $baseUrl
 - Dashboard DB: $dbPath
 - Agent public key: $publicKeyPath
-- Validated: startup, operator login, signed heartbeat, overview API, agents API.
+- Validated: public liveness, protected readiness, operator login, signed heartbeat, metrics, trends, alerts, overview, agents, and filtered logs.
 - Transport mode: $(if ($UseHttpForLocalTest) { "HTTP test mode" } else { "HTTPS" })
 "@
     $reportPath = Join-Path $RunRoot "report.md"

@@ -18,6 +18,11 @@ Dashboard:OperatorPasswordEnv=TRANSFERUDT_DASHBOARD_OPERATOR_PASSWORD
 Dashboard:DatabasePath=C:/TransferUDT/Dashboard/db/dashboard.db
 Dashboard:ServerDatabasePath=C:/TransferUDT/Server/db/server.db
 Dashboard:ServerLogPath=C:/TransferUDT/Server/log/server.log
+Dashboard:HeartbeatRetentionDays=30
+Dashboard:MetricsWindowHours=24
+Dashboard:MetricsBucketMinutes=60
+Dashboard:LowDiskWarningBytes=5368709120
+Dashboard:AutoRefreshSeconds=30
 Dashboard:AgentPublicKeys:<client_id>=C:/ProgramData/TransferUDT/Server/clients/<client_id>.pub
 ```
 
@@ -44,6 +49,27 @@ X-Signature: <rsa_sha256_hex(timestamp + "\n" + nonce + "\n" + body)>
 The Dashboard verifies the signature with the configured public key for that
 `client_id`, rejects replayed nonces, and rejects timestamps outside the
 configured skew window.
+
+## Health And Metrics
+
+```text
+GET /health/live
+GET /api/health
+GET /api/metrics?windowHours=24
+```
+
+`/health/live` is public and reports only process liveness. Detailed health and
+metrics require the operator session cookie. Detailed health distinguishes an
+unavailable Dashboard database (`unhealthy`) from missing Server data or stale
+Agent heartbeats (`degraded`).
+
+Metrics include current Agent backlog/failures, heartbeat sample count, minimum
+reported disk space, Server completion/error counters, current chunk gauges,
+active alerts, and bucketed heartbeat trends. The requested window is limited
+to 1-168 hours and trend output is capped to 200 points.
+
+Historical heartbeats older than `HeartbeatRetentionDays` are pruned after a
+new accepted heartbeat. The latest sample per Agent is retained separately.
 
 ## Local Test
 
