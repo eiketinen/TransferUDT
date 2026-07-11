@@ -1,5 +1,20 @@
 # Development Workflow — Multi-Agent Review
 
+## Main and branch policy
+
+`main` is the only long-lived branch and is the active integrated code line.
+Do not maintain parallel `develop` or permanent release branches. Start each
+change from current `main` in a short-lived descriptive branch:
+
+- `codex/feature-<slug>`
+- `codex/fix-<slug>`
+- `codex/security-<slug>`
+- `codex/chore-<slug>`
+- `codex/docs-<slug>`
+
+Every normal PR targets `main`. Delete its branch after merge. Tags do not
+replace branches and are never generated automatically; see "Version tags".
+
 This project uses a deterministic multi-agent review pipeline for non-trivial
 changes. The goal is to make each step auditable, push back early on
 under-specified work, and split synthesis (Claude) from adversarial review
@@ -143,6 +158,17 @@ buildable code (skipped when the PR carries `no-build`):
 
 Existing CI workflows (`windows-ci.yml`, `security.yml`) continue to run
 independently. Merge is blocked if any of them fail.
+
+## Version tags
+
+Version tags are created only after an explicit owner request. Prepare and
+merge the versioned release notes, x64/x86 packages, and checksum files into
+`main`, wait for all required checks, then manually run `Create Version Tag`
+with a SemVer value such as `1.1.0`.
+
+The workflow checks out `main`, validates `vMAJOR.MINOR.PATCH` syntax (including
+optional pre-release suffixes), rejects duplicate tags, verifies both package
+hashes, and creates an annotated tag. No push or PR event creates a tag.
 
 ## Hotfix exception
 

@@ -630,10 +630,16 @@ Get-Content C:\ProgramData\TransferUDT\Dashboard\logs\dashboard.log -Tail 200</c
         </div>
 
         <div class="callout">
-          <strong>Validacao da release:</strong> Agent tests 27/27, Server tests
-          28/28, fonte saneado sem executaveis, DLLs, chaves privadas, PFX,
-          bancos ou logs.
+          <strong>Validacao da release:</strong> Agent tests 37/37, Server tests
+          44/44, fonte saneado sem executaveis, DLLs, chaves privadas, PFX,
+          bancos ou logs. Os ativos locais do wizard sao gerados em
+          <code>dist\installer-assets</code>, fora da arvore de fontes, e o mesmo
+          conjunto e reutilizado nos pacotes x64 e x86.
         </div>
+        <p>A integracao em <code>main</code> nao cria tag automaticamente. Uma
+        tag SemVer anotada, como <code>v1.0.0</code>, somente e criada pelo
+        workflow manual <code>Create Version Tag</code>, depois da aprovacao da
+        CI e da verificacao dos pacotes x64 e x86 correspondentes.</p>
       </section>
     </main>
   </div>

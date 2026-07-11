@@ -22,6 +22,14 @@ Product documentation:
 - `docs/security.md`
 - `docs/release-package.md`
 
+## Repository Workflow
+
+`main` is the only long-lived branch and contains the current integrated code.
+Changes use short-lived descriptive branches and return through pull requests.
+Version tags are annotated SemVer tags created only through the manually
+dispatched `Create Version Tag` workflow after matching x64/x86 packages and
+release notes are committed on `main`. See `CONTRIBUTING.md`.
+
 ## Observability
 
 The HTTPS Dashboard provides signed Agent heartbeats, authenticated detailed

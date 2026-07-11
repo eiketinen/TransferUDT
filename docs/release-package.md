@@ -43,3 +43,11 @@ manutencao tecnica, mas a distribuicao oficial deve apontar o usuario para
 6. Hash SHA256 conferido.
 7. Documentacao revisada.
 8. Nenhum segredo real incluido no pacote de fonte.
+
+## Tag de versao
+
+A integracao em `main` nao cria tag automaticamente. Depois que os pacotes x64
+e x86, seus checksums e `docs/release-notes-<versao>.md` estiverem versionados
+em `main` e a CI estiver aprovada, execute manualmente o workflow
+`Create Version Tag` informando a versao sem o prefixo `v`, por exemplo
+`1.1.0`. O workflow confere os hashes e cria a tag anotada `v1.1.0`.

@@ -309,6 +309,9 @@
 
       <section id="visao-geral" data-search>
         <h2>Visao geral</h2>
+        <p>A versao desta referencia acompanha a release identificada por tag
+        SemVer anotada. Tags sao criadas manualmente a partir de
+        <code>main</code> e nao alteram os valores de configuracao.</p>
         <p>O TransferUDT usa dois arquivos principais de configuracao:</p>
         <ul>
           <li><strong>Agent:</strong> define para onde enviar arquivos, quais pastas observar, politicas de chunk, retry, logs, banco local, seguranca e Dashboard.</li>
@@ -319,6 +322,8 @@
           <code>config.example.properties</code> para <code>config.properties</code>,
           ajuste caminhos locais, IDs de cliente e segredos, e nunca publique
           arquivos com PSK, chaves privadas, certificados ou caminhos internos reais.
+          Os ativos de laboratorio gerados pelo empacotamento ficam em
+          <code>dist\installer-assets</code> e nao fazem parte da configuracao fonte.
         </div>
       </section>
 

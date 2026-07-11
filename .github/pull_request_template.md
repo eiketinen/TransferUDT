@@ -9,6 +9,12 @@ Implements RFC-
 
 - 
 
+## Branch Policy
+
+- [ ] Branch name describes one objective (`feature`, `fix`, `security`, `chore`, or `docs`)
+- [ ] Pull request targets `main`
+- [ ] No version tag is created by this PR; tags use the manual workflow after merge
+
 ## Validation
 
 - [ ] Server tests pass

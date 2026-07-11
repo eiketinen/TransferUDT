@@ -9,6 +9,10 @@
 #define PackageArchitecture "x64"
 #endif
 
+#ifndef InstallerAssetDir
+#define InstallerAssetDir "."
+#endif
+
 #define AppName "TransferUDT"
 #define AppVersion "1.0.0"
 #define Publisher "TransferUDT"
@@ -72,9 +76,9 @@ Source: "{#AgentBin}\*.dll"; DestDir: "{app}\Agent"; Components: agent; Flags: i
 Source: "{#ServerBin}\ServerUDTC++.exe"; DestDir: "{app}\Server"; Components: server; Flags: ignoreversion
 Source: "{#ServerBin}\*.dll"; DestDir: "{app}\Server"; Components: server; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#DashboardBin}\*"; DestDir: "{app}\Dashboard"; Components: dashboard; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "TransferUDT-Dashboard-Test.pfx"; DestDir: "{tmp}"; Components: dashboard; Flags: dontcopy
-Source: "TransferUDT-Agent-Test.key"; DestDir: "{commonappdata}\TransferUDT\Agent\keys"; Components: agent; Flags: ignoreversion
-Source: "TransferUDT-Agent-Test.pub"; DestDir: "{tmp}"; Components: dashboard; Flags: dontcopy
+Source: "{#InstallerAssetDir}\TransferUDT-Dashboard-Test.pfx"; DestDir: "{tmp}"; Components: dashboard; Flags: dontcopy
+Source: "{#InstallerAssetDir}\TransferUDT-Agent-Test.key"; DestDir: "{commonappdata}\TransferUDT\Agent\keys"; Components: agent; Flags: ignoreversion
+Source: "{#InstallerAssetDir}\TransferUDT-Agent-Test.pub"; DestDir: "{tmp}"; Components: dashboard; Flags: dontcopy
 Source: "Install-TransferUDT.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "Uninstall-TransferUDT.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 

@@ -1,0 +1,102 @@
+name: Create Version Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SemVer without the leading v, for example 1.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: manual-version-tag
+  cancel-in-progress: false
+
+jobs:
+  tag-main:
+    name: Validate and tag main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout active main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate version artifacts
+        id: version
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "Invalid SemVer: $VERSION" >&2
+            exit 1
+          fi
+          if [[ "$VERSION" == *-* ]]; then
+            prerelease="${VERSION#*-}"
+            IFS='.' read -ra identifiers <<< "$prerelease"
+            for identifier in "${identifiers[@]}"; do
+              if [[ "$identifier" =~ ^0[0-9]+$ ]]; then
+                echo "Numeric pre-release identifiers cannot contain leading zeros: $identifier" >&2
+                exit 1
+              fi
+            done
+          fi
+
+          tag="v$VERSION"
+          git fetch origin main --tags
+          git switch --detach origin/main
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Tag already exists: $tag" >&2
+            exit 1
+          fi
+
+          test -f "docs/release-notes-$VERSION.md"
+          for arch in x64 x86; do
+            zip="dist/releases/TransferUDT-$VERSION-windows-$arch.zip"
+            sums="dist/releases/TransferUDT-$VERSION-windows-$arch-SHA256SUMS.txt"
+            test -f "$zip"
+            test -f "$sums"
+
+            expected="$(awk -v name="$(basename "$zip")" '$2 == name { print $1; exit }' "$sums")"
+            actual="$(sha256sum "$zip" | awk '{ print $1 }')"
+            if [[ -z "$expected" || "${expected,,}" != "${actual,,}" ]]; then
+              echo "SHA256 mismatch for $zip" >&2
+              exit 1
+            fi
+          done
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create annotated tag
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          if [[ "$(git rev-parse origin/main)" != "$COMMIT" ]]; then
+            echo "main changed after validation; run the workflow again." >&2
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag already exists: $TAG" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "$COMMIT" -m "TransferUDT $TAG"
+          git push origin "refs/tags/$TAG"
+
+      - name: Publish workflow summary
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: echo "Created annotated tag **$TAG** from **main**." >> "$GITHUB_STEP_SUMMARY"
