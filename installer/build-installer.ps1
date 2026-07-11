@@ -274,7 +274,8 @@ if (Test-Path -LiteralPath $dashboardProject) {
     }
 }
 
-New-InstallerAssets -OutputDirectory $PSScriptRoot -DashboardTestPassword $DashboardTestPassword
+$installerAssetDirectory = Join-Path $repoRoot "dist\installer-assets"
+New-InstallerAssets -OutputDirectory $installerAssetDirectory -DashboardTestPassword $DashboardTestPassword
 
 $agentExe = Resolve-TransferUDTExecutable -RepoRoot $repoRoot -Configuration $Configuration -Architecture $Architecture -Kind Agent -Required
 $serverExe = Resolve-TransferUDTExecutable -RepoRoot $repoRoot -Configuration $Configuration -Architecture $Architecture -Kind Server -Required
@@ -292,7 +293,7 @@ Assert-TransferUDTPEMachine -Path $dashboardExe -Architecture $Architecture | Ou
 Assert-BinaryContainsText -Path $agentExe -Text "Dashboard heartbeat started."
 
 $scriptPath = Join-Path $PSScriptRoot "TransferUDT.iss"
-& $isccPath "/DConfiguration=$Configuration" "/DPackageArchitecture=$Architecture" $scriptPath
+& $isccPath "/DConfiguration=$Configuration" "/DPackageArchitecture=$Architecture" "/DInstallerAssetDir=$installerAssetDirectory" $scriptPath
 
 if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup compiler failed with exit code $LASTEXITCODE."

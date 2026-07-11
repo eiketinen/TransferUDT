@@ -9,6 +9,7 @@ Before creating the public GitHub repository:
 - Confirm no databases, logs, binaries, `vcpkg_installed`, `.vs`, or `.user` files are staged.
 - Confirm no real `security.psk`, `security.client_psk.<client_id>`, private key,
   certificate bundle, production CRL, database, or production path is staged.
+- Confirm `dist\installer-assets` was neither staged nor included in the source ZIP.
 - Confirm CodeQL, dependency review, secret pattern scan, and Windows CI pass.
 - Confirm the Dashboard observability E2E passes for liveness, authenticated
   readiness, signed heartbeat, metrics, trends, alerts, and log filters.

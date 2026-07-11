@@ -37,8 +37,9 @@ documentacao operacional.
   filtros de logs, refresh automatico e retencao limitada de heartbeats.
 - Contadores de heartbeat corrigidos para arquivos distintos, com totais
   persistidos de processados/falhos e horario UTC da ultima transferencia.
-- Empacotamento x64/x86 reutiliza o mesmo conjunto completo de ativos de teste
-  do wizard e rejeita conjuntos parciais para evitar identidades divergentes.
+- Empacotamento x64/x86 gera e reutiliza em `dist\installer-assets` o mesmo
+  conjunto completo de ativos de teste do wizard, sem reescrever a arvore
+  `installer`, e rejeita conjuntos parciais para evitar identidades divergentes.
 
 ## Validacao esperada para release
 
