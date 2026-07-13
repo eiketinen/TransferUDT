@@ -43,6 +43,13 @@ documentacao operacional.
 - `main` definido como unica linha ativa, com branches curtas e descritivas,
   CODEOWNERS e tags SemVer anotadas criadas somente por workflow manual apos a
   validacao dos dois pacotes.
+- Dependencias C++ fixadas por uma unica baseline vcpkg validada entre Agent,
+  Server e TransferCore, com cache binario separado por arquitetura e hash dos
+  manifests nos workflows Windows.
+- Inicializacao do CodeQL apos a restauracao das dependencias, evitando
+  instrumentacao desnecessaria da compilacao de bibliotecas de terceiros.
+- Ruleset versionado para `main`, com PR obrigatorio, bloqueio de exclusao e
+  force-push, checks de CI obrigatorios e resolucao de conversas de revisao.
 
 ## Validacao esperada para release
 
@@ -56,6 +63,9 @@ documentacao operacional.
 - E2E de producao: 14/14 cenarios com handshake X.509 e CRL, incluindo reinicio
   do Agent durante transferencia, certificado revogado, CA incorreta e SHA-256.
 - SHA256 publicado para o instalador e para o pacote final.
+- Validacao de consistencia dos manifests vcpkg antes de qualquer restore em CI.
+- Gerador temporario de PKI do E2E alinhado ao requisito documentado de .NET
+  SDK 8, sem dependencia acidental do SDK 9.
 
 ## Observacoes de seguranca
 

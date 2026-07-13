@@ -8,20 +8,22 @@ on:
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, labeled, unlabeled]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".github/ISSUE_TEMPLATE/**"
   push:
     branches: [main]
 
 permissions:
   contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   guard:
     name: Should build?
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       skip: ${{ steps.decide.outputs.skip }}
     steps:
@@ -29,11 +31,25 @@ jobs:
         shell: bash
         env:
           LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           if echo "${LABELS:-}" | grep -q '"no-build"'; then
             echo "PR carries 'no-build' label; skipping dual-arch build gate."
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            changed_files="$(gh api --paginate "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" --jq '.[].filename')"
+            if [ -z "$changed_files" ]; then
+              echo "No changed files were returned; running the dual-arch build gate conservatively."
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            elif printf '%s\n' "$changed_files" | grep -Evq '^(docs/|\.github/ISSUE_TEMPLATE/)|\.md$'; then
+              echo "Buildable files changed; running the dual-arch build gate."
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "Only documentation or issue templates changed; skipping the dual-arch build gate."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -41,29 +57,39 @@ jobs:
   release-build:
     name: Release ${{ matrix.arch }}
     needs: guard
-    if: needs.guard.outputs.skip != 'true'
     runs-on: windows-latest
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         arch: [x64, x86]
     steps:
+      - name: Skip approved non-build change
+        if: needs.guard.outputs.skip == 'true'
+        shell: pwsh
+        run: Write-Host "Dual-architecture build was intentionally skipped by the guard."
+
       - name: Checkout
+        if: needs.guard.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Setup MSBuild
+        if: needs.guard.outputs.skip != 'true'
         uses: microsoft/setup-msbuild@v2
 
       - name: Setup .NET 8 (DashboardWeb)
+        if: needs.guard.outputs.skip != 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
 
       - name: Install Inno Setup
+        if: needs.guard.outputs.skip != 'true'
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
       - name: Map architecture to vcpkg triplet
+        if: needs.guard.outputs.skip != 'true'
         id: triplet
         shell: bash
         run: |
@@ -73,12 +99,20 @@ jobs:
             echo "value=x64-windows-static" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Setup vcpkg binary cache
+        if: needs.guard.outputs.skip != 'true'
+        uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          triplet: ${{ steps.triplet.outputs.value }}
+
       - name: Restore vcpkg packages for Server
+        if: needs.guard.outputs.skip != 'true'
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet ${{ steps.triplet.outputs.value }} --x-manifest-root=ServerUDTC++_v3
 
       - name: Restore vcpkg packages for Agent
+        if: needs.guard.outputs.skip != 'true'
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet ${{ steps.triplet.outputs.value }} --x-manifest-root=AgentUDTC++_v7.2
@@ -89,6 +123,7 @@ jobs:
       # explicitly (the existing windows-ci.yml only builds the *Tests* vcxproj,
       # which hardcode their include/lib paths and do not need this).
       - name: Integrate vcpkg with MSBuild
+        if: needs.guard.outputs.skip != 'true'
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" integrate install
@@ -97,6 +132,7 @@ jobs:
       # by windows-ci.yml on x64; here we build + package both arches. -RunTests
       # is intentionally omitted because the C++ test projects are x64-only.
       - name: Build production package (${{ matrix.arch }})
+        if: needs.guard.outputs.skip != 'true'
         shell: pwsh
         run: |
           .\scripts\New-TransferUDTRelease.ps1 `
@@ -106,6 +142,7 @@ jobs:
             -Build
 
       - name: Verify release artifacts (${{ matrix.arch }})
+        if: needs.guard.outputs.skip != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -120,7 +157,7 @@ jobs:
           }
 
       - name: Verify interrupted-transfer recovery (x64)
-        if: matrix.arch == 'x64'
+        if: needs.guard.outputs.skip != 'true' && matrix.arch == 'x64'
         shell: pwsh
         run: |
           .\scripts\e2e-production-readiness.ps1 `
@@ -130,6 +167,7 @@ jobs:
             -KeepRunRoot
 
       - name: Upload artifacts (${{ matrix.arch }})
+        if: needs.guard.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: TransferUDT-1.0.0-windows-${{ matrix.arch }}

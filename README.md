@@ -79,6 +79,11 @@ docs/                  Architecture, configuration, and security notes
 - vcpkg integration
 - Dependencies declared in each `vcpkg.json`: `fmt`, `openssl`, `sqlite3`, `udt`, `spdlog`
 
+All three manifests pin the same vcpkg `builtin-baseline`. GitHub Actions
+validates that baseline and dependency list before restoring a binary cache
+isolated by Windows triplet and manifest hash. A dependency change therefore
+requires an explicit manifest edit and automatically receives a new cache key.
+
 ## Quick Start
 
 Copy the example configs before running locally:

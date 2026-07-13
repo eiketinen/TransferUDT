@@ -380,8 +380,16 @@
           <li>Visual Studio 2022 com workload C++ Desktop.</li>
           <li>.NET SDK 8.</li>
           <li>Inno Setup 6.</li>
-          <li>Dependencias C++ via vcpkg.</li>
+          <li>Dependencias C++ via vcpkg, com a mesma
+          <code>builtin-baseline</code> nos manifests de Agent, Server e
+          TransferCore.</li>
         </ul>
+        <p>Nos workflows do GitHub, a baseline e a lista de dependencias sao
+        validadas antes do restore. O cache binario e isolado por arquitetura e
+        pelo hash dos manifests, portanto um ajuste de dependencia gera uma
+        chave nova sem reutilizar binarios incompativeis.</p>
+        <p>O gerador temporario de certificados usado pelos testes E2E tambem
+        usa <code>net8.0</code>; o SDK 9 nao e requisito de build ou validacao.</p>
       </section>
 
       <section id="instalacao" data-search>
@@ -640,6 +648,10 @@ Get-Content C:\ProgramData\TransferUDT\Dashboard\logs\dashboard.log -Tail 200</c
         tag SemVer anotada, como <code>v1.0.0</code>, somente e criada pelo
         workflow manual <code>Create Version Tag</code>, depois da aprovacao da
         CI e da verificacao dos pacotes x64 e x86 correspondentes.</p>
+        <p>O ruleset <code>main-protection</code> bloqueia exclusao e force-push,
+        exige PR atualizado, os checks Windows, release x64/x86, seguranca,
+        dependency review e RFC, e impede merge com conversas de revisao
+        pendentes.</p>
       </section>
     </main>
   </div>

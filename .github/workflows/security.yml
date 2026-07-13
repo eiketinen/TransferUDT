@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: "0 7 * * 1"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   actions: read
   contents: read
@@ -18,16 +22,16 @@ jobs:
   codeql:
     name: CodeQL C/C++
     runs-on: windows-latest
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+      - name: Setup vcpkg binary cache
+        uses: ./.github/actions/setup-vcpkg-cache
         with:
-          languages: c-cpp
-          queries: security-extended,security-and-quality
+          triplet: x64-windows-static
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -52,6 +56,14 @@ jobs:
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" integrate install
 
+      # Initialize after dependency restoration so CodeQL traces the
+      # application build without instrumenting third-party libraries.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          queries: security-extended,security-and-quality
+
       - name: Build applications
         shell: pwsh
         run: |
@@ -65,6 +77,7 @@ jobs:
     name: Dependency Review
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: read
@@ -79,6 +92,7 @@ jobs:
   secret-pattern-scan:
     name: Secret Pattern Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
 

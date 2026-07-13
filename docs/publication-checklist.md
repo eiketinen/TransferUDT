@@ -11,6 +11,11 @@ Before creating the public GitHub repository:
   certificate bundle, production CRL, database, or production path is staged.
 - Confirm `dist\installer-assets` was neither staged nor included in the source ZIP.
 - Confirm CodeQL, dependency review, secret pattern scan, and Windows CI pass.
+- Confirm all three `vcpkg.json` files use the same reviewed
+  `builtin-baseline` and dependency list.
+- Validate `.github/rulesets/main-protection.json` with
+  `.\scripts\Set-GitHubMainRuleset.ps1 -ValidateOnly` and confirm the active
+  GitHub ruleset requires the documented PR checks.
 - Confirm the change was merged into `main` from a descriptive short-lived
   branch and that the merged branch can be deleted.
 - Confirm the Dashboard observability E2E passes for liveness, authenticated

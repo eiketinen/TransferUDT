@@ -312,6 +312,13 @@
         <p>A versao desta referencia acompanha a release identificada por tag
         SemVer anotada. Tags sao criadas manualmente a partir de
         <code>main</code> e nao alteram os valores de configuracao.</p>
+        <p>A reproducibilidade do build e controlada separadamente: os tres
+        manifests vcpkg usam a mesma <code>builtin-baseline</code>, validada pela
+        CI antes de um cache binario identificado por arquitetura e hash dos
+        manifests. Esse controle nao muda parametros de runtime descritos nesta
+        referencia.</p>
+        <p>Os testes de certificados e CRL executam com .NET SDK 8 e nao
+        introduzem configuracao adicional no Agent ou no Server.</p>
         <p>O TransferUDT usa dois arquivos principais de configuracao:</p>
         <ul>
           <li><strong>Agent:</strong> define para onde enviar arquivos, quais pastas observar, politicas de chunk, retry, logs, banco local, seguranca e Dashboard.</li>

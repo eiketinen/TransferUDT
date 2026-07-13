@@ -28,6 +28,7 @@ ipch/
 
 # vcpkg installed packages
 vcpkg_installed/
+.cache/
 
 # Runtime state
 *.db

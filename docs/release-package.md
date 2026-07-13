@@ -44,6 +44,11 @@ manutencao tecnica, mas a distribuicao oficial deve apontar o usuario para
 7. Documentacao revisada.
 8. Nenhum segredo real incluido no pacote de fonte.
 
+Antes do build, a CI valida que Agent, Server e TransferCore usam a mesma
+`builtin-baseline` e a mesma lista de dependencias vcpkg. O cache binario e
+separado por triplet e hash dos manifests; ele acelera restores sem alterar o
+conteudo declarado ou os checksums finais dos pacotes.
+
 ## Tag de versao
 
 A integracao em `main` nao cria tag automaticamente. Depois que os pacotes x64
@@ -51,3 +56,7 @@ e x86, seus checksums e `docs/release-notes-<versao>.md` estiverem versionados
 em `main` e a CI estiver aprovada, execute manualmente o workflow
 `Create Version Tag` informando a versao sem o prefixo `v`, por exemplo
 `1.1.0`. O workflow confere os hashes e cria a tag anotada `v1.1.0`.
+
+O ruleset `main-protection` exige PR atualizado, os checks Windows, release
+x64/x86, seguranca, dependency review e RFC, alem da resolucao das conversas de
+review. Exclusao e force-push de `main` permanecem bloqueados.

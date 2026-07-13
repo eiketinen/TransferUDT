@@ -126,7 +126,8 @@ Maquina de build:
 - Visual Studio 2022 com workload "Desktop development with C++"
 - .NET SDK 8
 - Inno Setup 6
-- Dependencias C++ via vcpkg conforme os `vcpkg.json`
+- Dependencias C++ via vcpkg conforme os `vcpkg.json`, todos fixados na mesma
+  `builtin-baseline`
 
 ## Instalacao rapida com wizard
 
