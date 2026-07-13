@@ -1,6 +1,7 @@
 {
   "name": "agentudtc-project",
   "version-string": "1.0.0",
+  "builtin-baseline": "c166a50eed8f6bf4a9dad61a44d0e6d588be277f",
   "dependencies": [
     "fmt",
     "openssl",

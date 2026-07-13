@@ -1,0 +1,78 @@
+name: Setup vcpkg binary cache
+description: Validate the pinned manifests and restore the shared vcpkg binary cache.
+
+inputs:
+  triplet:
+    description: vcpkg target triplet used by the job.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Validate pinned vcpkg manifests
+      id: manifests
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        $paths = @(
+          "AgentUDTC++_v7.2/vcpkg.json",
+          "ServerUDTC++_v3/vcpkg.json",
+          "TransferCore/vcpkg.json"
+        )
+
+        $manifests = foreach ($path in $paths) {
+          if (-not (Test-Path -LiteralPath $path)) {
+            throw "Required vcpkg manifest is missing: $path"
+          }
+
+          [PSCustomObject]@{
+            Path = $path
+            Value = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+          }
+        }
+
+        $baselines = @($manifests.Value.'builtin-baseline' | Sort-Object -Unique)
+        if ($baselines.Count -ne 1 -or [string]::IsNullOrWhiteSpace($baselines[0])) {
+          throw "All vcpkg manifests must use the same non-empty builtin-baseline."
+        }
+
+        $expectedDependencies = @($manifests[0].Value.dependencies | Sort-Object)
+        foreach ($manifest in $manifests) {
+          $dependencies = @($manifest.Value.dependencies | Sort-Object)
+          if (Compare-Object $expectedDependencies $dependencies) {
+            throw "vcpkg dependency drift detected in $($manifest.Path)."
+          }
+        }
+
+        $digestInput = ($paths | ForEach-Object {
+          (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash
+        }) -join ":"
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+          $digestBytes = [System.Text.Encoding]::UTF8.GetBytes($digestInput)
+          $manifestHash = [System.BitConverter]::ToString($sha256.ComputeHash($digestBytes)).Replace("-", "").ToLowerInvariant()
+        } finally {
+          $sha256.Dispose()
+        }
+
+        "baseline=$($baselines[0])" >> $env:GITHUB_OUTPUT
+        "manifest_hash=$manifestHash" >> $env:GITHUB_OUTPUT
+        Write-Host "Validated vcpkg baseline $($baselines[0]) for ${{ inputs.triplet }}."
+
+    - name: Restore vcpkg binary cache
+      uses: actions/cache@v4
+      with:
+        path: .cache/vcpkg/archives
+        key: vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ steps.manifests.outputs.baseline }}-${{ steps.manifests.outputs.manifest_hash }}
+        restore-keys: |
+          vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ steps.manifests.outputs.baseline }}-
+          vcpkg-${{ runner.os }}-${{ inputs.triplet }}-
+
+    - name: Configure vcpkg binary sources
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        $cacheDirectory = Join-Path $env:GITHUB_WORKSPACE ".cache\vcpkg\archives"
+        New-Item -ItemType Directory -Path $cacheDirectory -Force | Out-Null
+        "VCPKG_BINARY_SOURCES=clear;files,$cacheDirectory,readwrite" >> $env:GITHUB_ENV
+        Write-Host "vcpkg binary cache configured for ${{ inputs.triplet }}."

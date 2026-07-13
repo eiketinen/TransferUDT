@@ -15,6 +15,13 @@ change from current `main` in a short-lived descriptive branch:
 Every normal PR targets `main`. Delete its branch after merge. Tags do not
 replace branches and are never generated automatically; see "Version tags".
 
+The repository stores the desired `main` ruleset in
+`.github/rulesets/main-protection.json`. It blocks deletion and force-pushes,
+requires changes to arrive through an up-to-date PR, requires all CI gates, and
+requires review conversations to be resolved. The approval count remains zero
+while the repository has a single maintainer; increase it when an independent
+reviewer with write access is available.
+
 This project uses a deterministic multi-agent review pipeline for non-trivial
 changes. The goal is to make each step auditable, push back early on
 under-specified work, and split synthesis (Claude) from adversarial review
@@ -155,6 +162,17 @@ buildable code (skipped when the PR carries `no-build`):
   SHA256SUMS are produced.
 - No job x64, o cenario E2E `agent-restart-resume` encerra o Agent durante a
   transferencia e exige retomada com o mesmo SHA-256.
+
+The workflow runs a lightweight guard for every PR so the `Release x64` and
+`Release x86` check contexts always exist for branch protection. Changes
+limited to documentation or issue templates skip the expensive matrix; an empty
+or unexpected change list fails closed by running it.
+
+All C++ workflows use `.github/actions/setup-vcpkg-cache`. The action rejects
+baseline or dependency drift across the Agent, Server, and TransferCore
+manifests, then restores a binary cache keyed by runner OS, triplet, pinned
+baseline, and manifest hash. Cache misses rebuild dependencies and publish a
+new immutable key; cache hits do not weaken manifest validation.
 
 Existing CI workflows (`windows-ci.yml`, `security.yml`) continue to run
 independently. Merge is blocked if any of them fail.

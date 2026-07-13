@@ -9,16 +9,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\build-instal
 Esse comando faz a esteira completa:
 
 1. Localiza o MSBuild do Visual Studio.
-2. Compila `AgentUDTC++` em `Release|x64`.
-3. Compila `ServerUDTC++` em `Release|x64`.
-4. Publica `DashboardWeb` self-contained para `win-x64`.
-5. Gera os assets padrao do wizard fora da arvore de fontes:
+2. Usa os manifests vcpkg com uma unica `builtin-baseline`; atualizacoes de
+   dependencia devem alterar essa baseline explicitamente e validar x64/x86.
+3. Compila `AgentUDTC++` em `Release|x64`.
+4. Compila `ServerUDTC++` em `Release|x64`.
+5. Publica `DashboardWeb` self-contained para `win-x64`.
+6. Gera os assets padrao do wizard fora da arvore de fontes:
    - `dist\installer-assets\TransferUDT-Dashboard-Test.pfx`
    - `dist\installer-assets\TransferUDT-Agent-Test.key`
    - `dist\installer-assets\TransferUDT-Agent-Test.pub`
-6. Valida que o `AgentUDTC++.exe` empacotado contem o cliente de heartbeat do Dashboard.
-7. Executa o Inno Setup.
-8. Gera:
+7. Valida que o `AgentUDTC++.exe` empacotado contem o cliente de heartbeat do Dashboard.
+8. Executa o Inno Setup.
+9. Gera:
    - `dist\TransferUDT-Setup-Release.exe`
    - `dist\TransferUDT-Setup-Release-Complete.exe`
 

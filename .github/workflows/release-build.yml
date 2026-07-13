@@ -8,20 +8,22 @@ on:
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, labeled, unlabeled]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".github/ISSUE_TEMPLATE/**"
   push:
     branches: [main]
 
 permissions:
   contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   guard:
     name: Should build?
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       skip: ${{ steps.decide.outputs.skip }}
     steps:
@@ -29,11 +31,25 @@ jobs:
         shell: bash
         env:
           LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           if echo "${LABELS:-}" | grep -q '"no-build"'; then
             echo "PR carries 'no-build' label; skipping dual-arch build gate."
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            changed_files="$(gh api --paginate "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" --jq '.[].filename')"
+            if [ -z "$changed_files" ]; then
+              echo "No changed files were returned; running the dual-arch build gate conservatively."
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            elif ! printf '%s\n' "$changed_files" | grep -Evq '^(docs/|\.github/ISSUE_TEMPLATE/)|\.md$'; then
+              echo "Buildable files changed; running the dual-arch build gate."
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "Only documentation or issue templates changed; skipping the dual-arch build gate."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -43,6 +59,7 @@ jobs:
     needs: guard
     if: needs.guard.outputs.skip != 'true'
     runs-on: windows-latest
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +89,11 @@ jobs:
           else
             echo "value=x64-windows-static" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Setup vcpkg binary cache
+        uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          triplet: ${{ steps.triplet.outputs.value }}
 
       - name: Restore vcpkg packages for Server
         shell: pwsh

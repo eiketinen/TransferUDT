@@ -6,13 +6,23 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: windows-latest
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup vcpkg binary cache
+        uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          triplet: x64-windows-static
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
