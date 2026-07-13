@@ -175,6 +175,10 @@ manifests, then restores a binary cache keyed by runner OS, triplet, pinned
 baseline, and manifest hash. Cache misses rebuild dependencies and publish a
 new immutable key; cache hits do not weaken manifest validation.
 
+The security workflow restores and integrates cached dependencies before
+initializing CodeQL, so analysis traces the TransferUDT application build
+without instrumenting third-party library compilation.
+
 Existing CI workflows (`windows-ci.yml`, `security.yml`) continue to run
 independently. Merge is blocked if any of them fail.
 

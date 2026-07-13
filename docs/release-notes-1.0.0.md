@@ -46,6 +46,8 @@ documentacao operacional.
 - Dependencias C++ fixadas por uma unica baseline vcpkg validada entre Agent,
   Server e TransferCore, com cache binario separado por arquitetura e hash dos
   manifests nos workflows Windows.
+- Inicializacao do CodeQL apos a restauracao das dependencias, evitando
+  instrumentacao desnecessaria da compilacao de bibliotecas de terceiros.
 - Ruleset versionado para `main`, com PR obrigatorio, bloqueio de exclusao e
   force-push, checks de CI obrigatorios e resolucao de conversas de revisao.
 

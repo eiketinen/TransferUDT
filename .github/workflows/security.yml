@@ -33,12 +33,6 @@ jobs:
         with:
           triplet: x64-windows-static
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: c-cpp
-          queries: security-extended,security-and-quality
-
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
@@ -61,6 +55,14 @@ jobs:
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" integrate install
+
+      # Initialize after dependency restoration so CodeQL traces the
+      # application build without instrumenting third-party libraries.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          queries: security-extended,security-and-quality
 
       - name: Build applications
         shell: pwsh
