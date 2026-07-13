@@ -165,8 +165,9 @@ buildable code (skipped when the PR carries `no-build`):
 
 The workflow runs a lightweight guard for every PR so the `Release x64` and
 `Release x86` check contexts always exist for branch protection. Changes
-limited to documentation or issue templates skip the expensive matrix; an empty
-or unexpected change list fails closed by running it.
+limited to documentation or issue templates skip the expensive build steps
+inside both matrix jobs; an empty or unexpected change list fails closed by
+running them.
 
 All C++ workflows use `.github/actions/setup-vcpkg-cache`. The action rejects
 baseline or dependency drift across the Agent, Server, and TransferCore
